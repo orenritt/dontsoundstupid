@@ -1,0 +1,27 @@
+{
+  "name": "dontsoundstupid-1",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/orenritt/dontsoundstupid.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/orenritt/dontsoundstupid/issues"
+  },
+  "homepage": "https://github.com/orenritt/dontsoundstupid#readme",
+  "description": "",
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "zod": "^4.3.6"
+  }
+}
