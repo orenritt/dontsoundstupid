@@ -4,5 +4,5 @@ import { authConfig } from "@/lib/auth.config";
 export const { auth: middleware } = NextAuth(authConfig);
 
 export const config = {
-  matcher: ["/onboarding/:path*", "/briefing/:path*", "/settings/:path*", "/admin/:path*", "/pipeline/:path*"],
+  matcher: ["/onboarding/:path*", "/briefing/:path*", "/settings/:path*", "/pipeline/:path*"],
 };

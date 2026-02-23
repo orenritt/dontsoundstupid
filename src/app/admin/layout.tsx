@@ -55,22 +55,19 @@ export default function AdminLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
-    fetch("/api/admin/data-explorer?source=overview")
-      .then((res) => {
-        if (res.status === 401) {
+    fetch("/api/admin/check")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.admin) {
+          setAuthed("ok");
+        } else if (data.reason === "unauthenticated") {
           router.replace("/auth/login");
-          return;
-        }
-        if (res.status === 403) {
+        } else {
           setAuthed("denied");
-          return;
         }
-        if (!res.ok) throw new Error(`Admin API returned ${res.status}`);
-        setAuthed("ok");
       })
-      .catch((err) => {
-        console.error("Admin auth check failed:", err);
-        setAuthed("denied");
+      .catch(() => {
+        router.replace("/auth/login");
       });
   }, [router]);
 
