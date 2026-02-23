@@ -39,7 +39,12 @@ export function LinkedInStep({ onComplete, initialUrl, initialName, initialPhoto
         body: JSON.stringify({ linkedinUrl }),
       });
 
-      const data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error("Server error — please try again");
+      }
 
       if (!res.ok) {
         throw new Error(data.error || "Something went wrong");

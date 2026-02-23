@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface Topic {
@@ -19,39 +19,118 @@ interface RapidFireStepProps {
   onBack?: () => void;
 }
 
+const TIMEOUT_MS = 45_000;
+const PROGRESS_TICK_MS = 200;
+
+function useSimulatedProgress(active: boolean) {
+  const [progress, setProgress] = useState(0);
+  const startRef = useRef(Date.now());
+
+  useEffect(() => {
+    if (!active) return;
+    startRef.current = Date.now();
+    setProgress(0);
+
+    const id = setInterval(() => {
+      const elapsed = Date.now() - startRef.current;
+      const t = Math.min(elapsed / TIMEOUT_MS, 1);
+      // fast to ~40%, slows down, crawls near 95%
+      const p = t < 0.3
+        ? t * (40 / 0.3)
+        : t < 0.7
+          ? 40 + (t - 0.3) * (40 / 0.4)
+          : 80 + (t - 0.7) * (15 / 0.3);
+      setProgress(Math.min(p, 95));
+    }, PROGRESS_TICK_MS);
+
+    return () => clearInterval(id);
+  }, [active]);
+
+  const complete = useCallback(() => setProgress(100), []);
+  const reset = useCallback(() => {
+    startRef.current = Date.now();
+    setProgress(0);
+  }, []);
+
+  return { progress, complete, reset };
+}
+
 export function RapidFireStep({ onComplete, onBack }: RapidFireStepProps) {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [ready, setReady] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [classifications, setClassifications] = useState<Classification[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [exitDirection, setExitDirection] = useState(0);
+  const pollStartRef = useRef(Date.now());
+  const pollKeyRef = useRef(0);
+
+  const { progress, complete: completeProgress, reset: resetProgress } =
+    useSimulatedProgress(!ready && !failed);
 
   const pollRapidFire = useCallback(async () => {
     const res = await fetch("/api/onboarding/rapid-fire");
     const data = await res.json();
     if (data.ready && Array.isArray(data.topics) && data.topics.length > 0) {
       setTopics(data.topics);
-      setReady(true);
-      return true;
+      completeProgress();
+      setTimeout(() => setReady(true), 400);
+      return "ready" as const;
     }
-    return false;
-  }, []);
+    if (data.failed) {
+      return "failed" as const;
+    }
+    return "pending" as const;
+  }, [completeProgress]);
 
   useEffect(() => {
+    if (ready || failed) return;
+
     let cancelled = false;
     let timeoutId: ReturnType<typeof setTimeout>;
+    const key = pollKeyRef.current;
+
     const poll = async () => {
-      const done = await pollRapidFire();
-      if (done || cancelled) return;
+      if (cancelled || key !== pollKeyRef.current) return;
+
+      const result = await pollRapidFire();
+      if (cancelled || key !== pollKeyRef.current) return;
+
+      if (result === "ready") return;
+
+      if (result === "failed" || Date.now() - pollStartRef.current > TIMEOUT_MS) {
+        setFailed(true);
+        return;
+      }
+
       timeoutId = setTimeout(poll, 2000);
     };
     poll();
+
     return () => {
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [pollRapidFire]);
+  }, [pollRapidFire, ready, failed]);
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true);
+    try {
+      const res = await fetch("/api/onboarding/rapid-fire", { method: "PATCH" });
+      if (!res.ok) throw new Error("Retry failed");
+
+      setFailed(false);
+      pollStartRef.current = Date.now();
+      pollKeyRef.current += 1;
+      resetProgress();
+    } catch {
+      // stay in failed state
+    } finally {
+      setRetrying(false);
+    }
+  }, [resetProgress]);
 
   const handleChoice = (response: Classification["response"]) => {
     const topic = topics[currentIndex];
@@ -105,16 +184,54 @@ export function RapidFireStep({ onComplete, onBack }: RapidFireStepProps) {
               Back
             </button>
           )}
-          <p className="text-lg text-gray-900">
-            Analyzing what you told me
-            <motion.span
-              animate={{ opacity: [1, 0.3, 1] }}
-              transition={{ duration: 1, repeat: Infinity }}
-              className="inline-block ml-1"
-            >
-              •
-            </motion.span>
-          </p>
+
+          {failed ? (
+            <>
+              <p className="text-lg text-gray-900 mb-2">
+                Something went wrong while analyzing
+              </p>
+              <p className="text-sm text-gray-500 mb-6">
+                {"Don't worry — your answers are saved. Let's try again."}
+              </p>
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                className="rounded-lg bg-gray-900 px-6 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50 transition-colors"
+              >
+                {retrying ? "Retrying…" : "Try again"}
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-lg text-gray-900 mb-6">
+                Analyzing what you told me
+                <motion.span
+                  animate={{ opacity: [1, 0.3, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                  className="inline-block ml-1"
+                >
+                  •
+                </motion.span>
+              </p>
+
+              <div className="w-full max-w-xs mx-auto">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs text-gray-400">Processing</span>
+                  <span className="text-xs tabular-nums text-gray-400">
+                    {Math.round(progress)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-gray-200 overflow-hidden">
+                  <motion.div
+                    className="h-full rounded-full bg-gray-900"
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 0.3, ease: "easeOut" }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     );

@@ -36,6 +36,7 @@ const NAV_SECTIONS = [
     items: [
       { label: "Users & Profiles", href: "/admin/users" },
       { label: "Pipeline Runs", href: "/admin/pipeline" },
+      { label: "Cron Jobs", href: "/admin/cron" },
       { label: "Impress Contacts", href: "/admin/impress" },
       { label: "Peer Orgs", href: "/admin/peers" },
       { label: "API Tokens", href: "/admin/api-tokens" },

@@ -19,29 +19,37 @@ export async function POST(request: Request) {
     );
   }
 
-  const enriched = await enrichLinkedinProfile(linkedinUrl);
+  try {
+    const enriched = await enrichLinkedinProfile(linkedinUrl);
 
-  await db
-    .update(users)
-    .set({
-      linkedinUrl,
-      name: enriched.name,
-      title: enriched.title,
-      company: enriched.company,
-      linkedinPhotoUrl: enriched.photoUrl,
-      onboardingStatus: "in_progress",
-    })
-    .where(eq(users.id, session.user.id));
+    await db
+      .update(users)
+      .set({
+        linkedinUrl,
+        name: enriched.name,
+        title: enriched.title,
+        company: enriched.company,
+        linkedinPhotoUrl: enriched.photoUrl,
+        onboardingStatus: "in_progress",
+      })
+      .where(eq(users.id, session.user.id));
 
-  const existing = await db
-    .select({ id: userProfiles.id })
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, session.user.id))
-    .limit(1);
+    const existing = await db
+      .select({ id: userProfiles.id })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, session.user.id))
+      .limit(1);
 
-  if (existing.length === 0) {
-    await db.insert(userProfiles).values({ userId: session.user.id });
+    if (existing.length === 0) {
+      await db.insert(userProfiles).values({ userId: session.user.id });
+    }
+
+    return NextResponse.json({ enriched });
+  } catch (error) {
+    console.error("LinkedIn enrichment failed:", error);
+    return NextResponse.json(
+      { error: "Failed to process LinkedIn profile" },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({ enriched });
 }
