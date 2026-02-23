@@ -14,6 +14,7 @@ import {
 import { eq, desc, and, gte, lte } from "drizzle-orm";
 import { chat, embed } from "./llm";
 import type { LlmMessage } from "./llm";
+import { toStringArray } from "./safe-parse";
 import type {
   AgentToolName,
   AgentScoringResult,
@@ -21,8 +22,7 @@ import type {
   SignalSelection,
 } from "../models/relevance";
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const googleTrends = require("google-trends-api");
+const SERPAPI_KEY = process.env.SERPAPI_API_KEY ?? "";
 
 interface CandidateSignal {
   title: string;
@@ -113,11 +113,17 @@ When you've made your decision, call:
 
 13. submit_selections
     Submit your final picks.
-    Args: { "selections": [{ "signalIndex": <number>, "reason": "<reason-type>", "reasonLabel": "<human-readable label>", "confidence": <0-1>, "noveltyAssessment": "<why this is novel to the user>" }] }
+    Args: { "selections": [{ "signalIndex": <number>, "reason": "<reason-type>", "reasonLabel": "<human-readable label>", "confidence": <0-1>, "noveltyAssessment": "<why this is novel to the user>", "attribution": "<why this matters to THIS user specifically>" }] }
     reason must be one of: people-are-talking, meeting-prep, new-entrant, fundraise-or-deal, regulatory-or-policy, term-emerging, network-activity, your-space, competitive-move, event-upcoming, other.
     IMPORTANT: Use "meeting-prep" as the reason for any signal selected because it's relevant to an upcoming meeting. The reasonLabel should name the specific meeting or person (e.g., "Because you're meeting Sarah Chen at 2pm").
+    IMPORTANT: The "attribution" field must explain why this signal is relevant to THIS specific user. Reference concrete profile elements: their impress list contacts, peer orgs, knowledge gaps, initiatives, meeting attendees, or feedback history. Do NOT write generic attributions like "relevant to your industry" — be specific (e.g., "Acme Corp is on your impress list", "You flagged parametric modeling as a knowledge gap", "Sarah Chen's company overlaps with your initiative on risk assessment").
 
-You MUST call submit_selections exactly once to finalize. Do not respond with plain text after calling tools — always either call another tool or submit_selections.`;
+You MUST call submit_selections exactly once to finalize. Do not respond with plain text after calling tools — always either call another tool or submit_selections.
+
+CRITICAL FORMAT REQUIREMENT: Every response you give MUST be a raw JSON object — no markdown, no explanation, no prose. Just:
+{"tool": "tool_name", "args": { ... }}
+
+Do NOT write text like "I'll call check_today_meetings" — just output the JSON directly. Do NOT use markdown code fences. Do NOT explain your reasoning in your response. Just output the JSON tool call.`;
 
 function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number): string {
   return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to pick the ${targetCount} most valuable signals from ${candidateCount} candidates.
@@ -156,6 +162,8 @@ SIGNAL LAYERS — Candidates come from multiple ingestion layers:
 - Other layers: syndication, research, events, narrative, personal-graph, email-forward
 
 You have many tools available. ALWAYS call check_today_meetings first. Beyond that, use your judgment about which tools are worth calling for this particular set of candidates. Think carefully about whether each candidate is truly worth the user's limited attention. A mediocre briefing is worse than a short one.
+
+ATTRIBUTION: For each selection, you MUST provide an "attribution" explaining why this signal matters to THIS specific user. Ground each attribution in concrete profile data — their impress list names, peer org names, specific knowledge gaps, current initiatives, meeting attendees, or feedback history. The attribution will be shown to the user so they understand why the item was included. Bad: "Relevant to your industry." Good: "Acme Corp is on your impress list and just announced a leadership change." Good: "You flagged parametric modeling as a knowledge gap — this is a primer on the latest approaches."
 
 ${TOOL_DEFINITIONS}`;
 }
@@ -343,18 +351,17 @@ interface GoogleTrendsArgs {
   geo?: string;
 }
 
-function trendsTimeframeToDate(timeframe: string): Date {
-  const now = new Date();
+function serpApiDateParam(timeframe: string): string {
   switch (timeframe) {
     case "past_day":
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      return "now 1-d";
     case "past_week":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return "now 7-d";
     case "past_year":
-      return new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      return "today 12-m";
     case "past_month":
     default:
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      return "today 1-m";
   }
 }
 
@@ -366,29 +373,6 @@ interface TrendsTimelineDataPoint {
   formattedValue: string[];
 }
 
-interface TrendsTimelineData {
-  averages: number[];
-}
-
-interface TrendsDefaultData {
-  timelineData: TrendsTimelineDataPoint[];
-  averages: number[];
-}
-
-interface TrendsRelatedQuery {
-  query: string;
-  value: number;
-  formattedValue: string;
-  link: string;
-}
-
-interface TrendsRelatedResult {
-  default: {
-    rankedList: {
-      rankedKeyword: TrendsRelatedQuery[];
-    }[];
-  };
-}
 
 function summarizeTrend(timelineData: TrendsTimelineDataPoint[], keywordIndex: number): {
   direction: "rising" | "falling" | "stable";
@@ -428,52 +412,87 @@ async function executeQueryGoogleTrends(args: GoogleTrendsArgs): Promise<unknown
     return { error: "keywords array is required and must not be empty" };
   }
 
+  if (!SERPAPI_KEY) {
+    return {
+      error: "Google Trends unavailable — SERPAPI_API_KEY not configured",
+      keywords: keywords.slice(0, 5),
+    };
+  }
+
   const cappedKeywords = keywords.slice(0, 5);
-  const startTime = trendsTimeframeToDate(args.timeframe ?? "past_month");
+  const timeframe = args.timeframe ?? "past_month";
+  const dateParam = serpApiDateParam(timeframe);
   const geo = args.geo ?? "";
+  const query = cappedKeywords.join(",");
 
   try {
-    // Interest over time
-    const interestRaw: string = await googleTrends.interestOverTime({
-      keyword: cappedKeywords,
-      startTime,
-      geo,
-    });
-    const interestData: { default: TrendsDefaultData } = JSON.parse(interestRaw);
-    const timelineData = interestData?.default?.timelineData ?? [];
+    const url = new URL("https://serpapi.com/search.json");
+    url.searchParams.set("engine", "google_trends");
+    url.searchParams.set("q", query);
+    url.searchParams.set("data_type", "TIMESERIES");
+    url.searchParams.set("date", dateParam);
+    if (geo) url.searchParams.set("geo", geo);
+    url.searchParams.set("api_key", SERPAPI_KEY);
+
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      return {
+        error: "SerpAPI request failed",
+        detail: `${res.status} ${res.statusText}`,
+        keywords: cappedKeywords,
+      };
+    }
+
+    const data = await res.json();
+    const timelineData: TrendsTimelineDataPoint[] = (data.interest_over_time?.timeline_data ?? []).map(
+      (d: { date: string; timestamp: string; values: { query: string; value: string; extracted_value: number }[] }) => ({
+        time: d.timestamp,
+        formattedTime: d.date,
+        value: d.values.map((v) => v.extracted_value),
+        hasData: d.values.map((v) => v.extracted_value > 0),
+        formattedValue: d.values.map((v) => v.value),
+      })
+    );
 
     const keywordSummaries = cappedKeywords.map((kw, i) => ({
       keyword: kw,
-      averageInterest: interestData?.default?.averages?.[i] ?? 0,
+      averageInterest: timelineData.length > 0
+        ? Math.round(timelineData.reduce((sum, d) => sum + (d.value[i] ?? 0), 0) / timelineData.length)
+        : 0,
       ...summarizeTrend(timelineData, i),
     }));
 
-    // Related queries (best effort — don't fail the whole tool if this errors)
+    // Related queries — separate call per keyword (best effort)
     const relatedData: Record<string, { top: string[]; rising: string[] }> = {};
-    try {
-      const relatedRaw: string = await googleTrends.relatedQueries({
-        keyword: cappedKeywords,
-        startTime,
-        geo,
-      });
-      const relatedParsed: TrendsRelatedResult = JSON.parse(relatedRaw);
-      const rankedLists = relatedParsed?.default?.rankedList ?? [];
+    for (const kw of cappedKeywords) {
+      try {
+        const rUrl = new URL("https://serpapi.com/search.json");
+        rUrl.searchParams.set("engine", "google_trends");
+        rUrl.searchParams.set("q", kw);
+        rUrl.searchParams.set("data_type", "RELATED_QUERIES");
+        rUrl.searchParams.set("date", dateParam);
+        if (geo) rUrl.searchParams.set("geo", geo);
+        rUrl.searchParams.set("api_key", SERPAPI_KEY);
 
-      cappedKeywords.forEach((kw, i) => {
-        const topList = rankedLists[i * 2]?.rankedKeyword ?? [];
-        const risingList = rankedLists[i * 2 + 1]?.rankedKeyword ?? [];
-        relatedData[kw] = {
-          top: topList.slice(0, 5).map((q) => q.query),
-          rising: risingList.slice(0, 5).map((q) => q.query),
-        };
-      });
-    } catch {
-      // Related queries can fail for low-volume terms; that's fine
+        const rRes = await fetch(rUrl.toString());
+        if (rRes.ok) {
+          const rData = await rRes.json();
+          const topQueries = (rData.related_queries?.top ?? []).slice(0, 5).map(
+            (q: { query: string }) => q.query
+          );
+          const risingQueries = (rData.related_queries?.rising ?? []).slice(0, 5).map(
+            (q: { query: string }) => q.query
+          );
+          relatedData[kw] = { top: topQueries, rising: risingQueries };
+        }
+      } catch {
+        // Individual related-query failures are non-fatal
+      }
     }
 
     return {
       keywords: cappedKeywords,
-      timeframe: args.timeframe ?? "past_month",
+      timeframe,
       geo: geo || "worldwide",
       trends: keywordSummaries,
       relatedQueries: relatedData,
@@ -1053,9 +1072,9 @@ async function executeCheckExpertiseGaps(
 
   if (!profile) return { error: "No profile found." };
 
-  const weakAreas = (profile.parsedWeakAreas as string[]) || [];
-  const knowledgeGaps = (profile.parsedKnowledgeGaps as string[]) || [];
-  const expertAreas = (profile.parsedExpertAreas as string[]) || [];
+  const weakAreas = toStringArray(profile.parsedWeakAreas);
+  const knowledgeGaps = toStringArray(profile.parsedKnowledgeGaps);
+  const expertAreas = toStringArray(profile.parsedExpertAreas);
 
   const gapTerms = [...weakAreas, ...knowledgeGaps].map((t) => t.toLowerCase());
   const expertTerms = expertAreas.map((t) => t.toLowerCase());
@@ -1223,6 +1242,7 @@ function parseSelections(args: Record<string, unknown>): SignalSelection[] | nul
     reasonLabel: String(s.reasonLabel ?? s.reason_label ?? ""),
     confidence: Number(s.confidence ?? 0.5),
     noveltyAssessment: String(s.noveltyAssessment ?? s.novelty_assessment ?? ""),
+    attribution: String(s.attribution ?? ""),
     toolsUsed: [],
   }));
 }
@@ -1258,12 +1278,12 @@ export async function runScoringAgent(
     name: user.name,
     title: user.title,
     company: user.company,
-    topics: (profile.parsedTopics as string[]) || [],
-    initiatives: (profile.parsedInitiatives as string[]) || [],
-    concerns: (profile.parsedConcerns as string[]) || [],
-    weakAreas: (profile.parsedWeakAreas as string[]) || [],
-    expertAreas: (profile.parsedExpertAreas as string[]) || [],
-    knowledgeGaps: (profile.parsedKnowledgeGaps as string[]) || [],
+    topics: toStringArray(profile.parsedTopics),
+    initiatives: toStringArray(profile.parsedInitiatives),
+    concerns: toStringArray(profile.parsedConcerns),
+    weakAreas: toStringArray(profile.parsedWeakAreas),
+    expertAreas: toStringArray(profile.parsedExpertAreas),
+    knowledgeGaps: toStringArray(profile.parsedKnowledgeGaps),
     rapidFireClassifications:
       (profile.rapidFireClassifications as { topic: string; context: string; response: string }[]) || [],
     deliveryChannel: profile.deliveryChannel,
@@ -1287,12 +1307,20 @@ export async function runScoringAgent(
   const toolsUsedPerRound: AgentToolName[] = [];
 
   for (let round = 0; round < config.maxToolRounds; round++) {
-    const response = await chat(messages, {
-      model: config.model,
-      temperature: config.temperature,
-      maxTokens: 4096,
-    });
+    console.log(`[scoring-agent] round ${round + 1}/${config.maxToolRounds}, calling ${config.model}...`);
+    let response;
+    try {
+      response = await chat(messages, {
+        model: config.model,
+        temperature: config.temperature,
+        maxTokens: 4096,
+      });
+    } catch (err) {
+      console.error(`[scoring-agent] LLM call failed in round ${round + 1}:`, err);
+      break;
+    }
 
+    console.log(`[scoring-agent] round ${round + 1} response: ${response.content.slice(0, 200)}`);
     totalPromptTokens += response.promptTokens;
     totalCompletionTokens += response.completionTokens;
 
@@ -1360,21 +1388,24 @@ export async function runScoringAgent(
   }
 
   // Max rounds exhausted — force a final selection
+  console.log(`[scoring-agent] max rounds exhausted, forcing submit_selections...`);
   const forceResponse = await chat(
     [
       ...messages,
       {
         role: "user",
-        content: `You've used all your tool rounds. You MUST now call submit_selections with your top ${config.targetSelections} picks based on what you've learned.`,
+        content: `You've used all your tool rounds. You MUST now call submit_selections with your top ${config.targetSelections} picks based on what you've learned. Respond with ONLY the JSON tool call, no text.`,
       },
     ],
     { model: config.model, temperature: config.temperature, maxTokens: 4096 }
   );
 
+  console.log(`[scoring-agent] force response: ${forceResponse.content.slice(0, 300)}`);
   totalPromptTokens += forceResponse.promptTokens;
   totalCompletionTokens += forceResponse.completionTokens;
 
   const finalCall = parseToolCall(forceResponse.content);
+  console.log(`[scoring-agent] final parsed tool: ${finalCall?.tool ?? 'null'}`);
   if (finalCall?.tool === "submit_selections") {
     const selections = parseSelections(finalCall.args);
     if (selections && selections.length > 0) {
