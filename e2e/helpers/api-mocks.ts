@@ -174,6 +174,7 @@ export async function mockBriefingLatest(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
+        briefing: {
         id: "mock-briefing-001",
         generatedAt: new Date().toISOString(),
         items: [
@@ -208,6 +209,7 @@ export async function mockBriefingLatest(page: Page) {
             attribution: "You flagged AI regulation as a knowledge gap.",
           },
         ],
+        },
       }),
     });
   });
@@ -222,7 +224,7 @@ export async function mockFeedbackDeepDive(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        deepDive: "NVIDIA's H200 allocation changes reflect a broader strategic shift toward enterprise-first distribution. This impacts hyperscalers' ability to offer spot GPU instances and could drive up costs for smaller AI startups by 15-25% in the next quarter.",
+        expanded: "NVIDIA's H200 allocation changes reflect a broader strategic shift toward enterprise-first distribution. This impacts hyperscalers' ability to offer spot GPU instances and could drive up costs for smaller AI startups by 15-25% in the next quarter.",
       }),
     });
   });
@@ -302,6 +304,72 @@ export async function mockNewsletterSuggestions(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ subscriptions: [] }),
+    });
+  });
+}
+
+/**
+ * Mock the user profile endpoint to return onboarding data on the settings page.
+ */
+export async function mockUserProfile(page: Page) {
+  await page.route("**/api/user/profile", async (route: Route) => {
+    if (route.request().method() !== "GET") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "test-user-id",
+        email: "test@example.com",
+        name: "Test User",
+        title: "VP of Engineering",
+        company: "Acme Corp",
+        linkedinUrl: "https://www.linkedin.com/in/test-user-e2e",
+        linkedinPhotoUrl: "https://api.dicebear.com/9.x/initials/svg?seed=TU",
+        onboardingStatus: "completed",
+        transcript:
+          "I manage a platform engineering team at a mid-size SaaS company. " +
+          "Most of my day goes to architecture reviews and hiring. " +
+          "I'm deep in a Kubernetes migration and trying to figure out our observability strategy.",
+        conversationInputMethod: "text",
+        topics: ["Kubernetes", "Observability", "Platform Engineering"],
+        initiatives: ["Kubernetes migration", "Observability strategy"],
+        concerns: ["Hiring pipeline", "Architecture complexity"],
+        knowledgeGaps: ["eBPF", "OpenTelemetry best practices"],
+        expertAreas: ["Container orchestration", "CI/CD pipelines"],
+        weakAreas: ["GPU infrastructure", "ML model serving"],
+        rapidFireClassifications: [
+          { topic: "AI/ML Infrastructure", context: "Emerging compute paradigms", response: "need-more" },
+          { topic: "Edge Computing", context: "Distributed processing", response: "not-relevant" },
+          { topic: "Zero Trust Security", context: "Identity-first security", response: "know-tons" },
+          { topic: "Platform Engineering", context: "Internal developer platforms", response: "know-tons" },
+          { topic: "FinOps", context: "Cloud cost optimization", response: "need-more" },
+          { topic: "Kubernetes Operators", context: "Custom resource controllers", response: "know-tons" },
+          { topic: "Service Mesh", context: "Microservices networking", response: "need-more" },
+          { topic: "Data Mesh", context: "Decentralized data architecture", response: "not-relevant" },
+        ],
+        deliveryChannel: "email",
+        deliveryTime: "07:00",
+        deliveryTimezone: "America/New_York",
+        impressContacts: [
+          {
+            id: "contact-1",
+            name: "Jane Doe",
+            title: "CTO",
+            company: "BigCorp",
+            linkedinUrl: "https://www.linkedin.com/in/jane-doe",
+            photoUrl: "https://api.dicebear.com/9.x/initials/svg?seed=JD",
+          },
+        ],
+        peerOrganizations: [
+          { id: "peer-1", name: "DataDog", domain: "datadoghq.com", description: "Cloud monitoring platform", entityType: "company", confirmed: true },
+          { id: "peer-2", name: "HashiCorp", domain: "hashicorp.com", description: "Infrastructure automation", entityType: "company", confirmed: true },
+          { id: "peer-3", name: "The New Stack", domain: "thenewstack.io", description: "DevOps news", entityType: "publication", confirmed: true },
+        ],
+        profileUpdatedAt: new Date().toISOString(),
+      }),
     });
   });
 }

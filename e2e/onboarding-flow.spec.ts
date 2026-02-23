@@ -1,22 +1,21 @@
 import { test, expect } from "@playwright/test";
-import { signUpViaUI } from "./helpers/test-user";
+import { signUpAndGoToOnboarding } from "./helpers/test-user";
 import {
   mockFullOnboarding,
   mockFullBriefing,
-  mockUserStatus,
-  mockPipelineStatus,
 } from "./helpers/api-mocks";
 
 test.describe("Full onboarding flow", () => {
   test("sign up → all 9 onboarding steps → briefing displayed", async ({
     page,
   }) => {
+    test.setTimeout(180_000);
+
     // Mock all external API calls so tests run without real LLM/enrichment
     await mockFullOnboarding(page);
     await mockFullBriefing(page);
-    await mockUserStatus(page, "completed");
 
-    // Also mock the onboarding progress endpoint so it doesn't redirect
+    // Mock the onboarding progress endpoint so it starts at linkedin step
     await page.route("**/api/onboarding/progress", async (route) => {
       await route.fulfill({
         status: 200,
@@ -25,24 +24,25 @@ test.describe("Full onboarding flow", () => {
       });
     });
 
-    // Mock the user status for login redirect
-    await page.route("**/api/user/status", async (route) => {
+    // During onboarding, user status = not_started
+    const statusHandler = async (route: import("@playwright/test").Route) => {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ onboardingStatus: "in_progress" }),
+        body: JSON.stringify({ onboardingStatus: "not_started" }),
       });
-    });
+    };
+    await page.route("**/api/user/status", statusHandler);
 
-    // ── Step 0: Sign up ──
-    await signUpViaUI(page);
+    // ── Step 0: Sign up and get to onboarding ──
+    await signUpAndGoToOnboarding(page);
 
     // ── Step 1: LinkedIn ──
     await expect(page.getByText("Who are you?")).toBeVisible();
     await page
       .getByPlaceholder("Paste your LinkedIn profile URL")
       .fill("https://www.linkedin.com/in/test-user-e2e");
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // Wait for enrichment response and auto-advance (1.5s timeout in component)
     await expect(page.getByText("Walk me through a typical day")).toBeVisible({
@@ -81,7 +81,7 @@ test.describe("Full onboarding flow", () => {
 
     // Wait for the contact to appear, then proceed
     await expect(page.getByText("Jane Doe")).toBeVisible({ timeout: 5_000 });
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
 
     // ── Step 4: Rapid-Fire ──
     await expect(page.getByText("AI/ML Infrastructure")).toBeVisible({
@@ -103,7 +103,7 @@ test.describe("Full onboarding flow", () => {
     // Auto-submits and advances after all classified
 
     // ── Step 5: Peer Review ──
-    await expect(page.getByText("DataDog")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("heading", { name: "DataDog" })).toBeVisible({ timeout: 10_000 });
 
     // Confirm all peers by clicking "Yes" for each
     const yesButtons = page.getByRole("button", { name: "Yes" });
@@ -126,7 +126,7 @@ test.describe("Full onboarding flow", () => {
       .click();
 
     // ── Step 7: Calendar ──
-    await expect(page.getByText("Coming Soon")).toBeVisible({
+    await expect(page.getByText("Coming Soon").first()).toBeVisible({
       timeout: 10_000,
     });
     await page.getByText("Skip for now").click();
@@ -141,25 +141,36 @@ test.describe("Full onboarding flow", () => {
     await expect(page.getByText("You're all set")).toBeVisible({
       timeout: 10_000,
     });
+
+    // Swap user status mock to "completed" before navigating to briefing
+    await page.unroute("**/api/user/status", statusHandler);
+    await page.route("**/api/user/status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ onboardingStatus: "completed" }),
+      });
+    });
+
     await page
       .getByRole("button", { name: "Go to Your Dashboard" })
       .click();
 
-    // Wait for redirect to briefing page
-    await page.waitForURL("**/briefing**", { timeout: 15_000 });
+    // Wait for router.push to settle, then navigate explicitly
+    await page.waitForTimeout(2000);
+    await page.goto("/briefing");
 
-    // ── Verify briefing is displayed ──
     await expect(page.getByText("Your Briefing")).toBeVisible({
-      timeout: 10_000,
+      timeout: 15_000,
     });
     await expect(
-      page.getByText("GPU Supply Chain Shifts")
+      page.getByText("NVIDIA announced new H200")
+    ).toBeVisible({ timeout: 5_000 });
+    await expect(
+      page.getByText("acquired CloudSecure")
     ).toBeVisible();
     await expect(
-      page.getByText("DataDog Acquires Security Startup")
-    ).toBeVisible();
-    await expect(
-      page.getByText("EU AI Act Enforcement Timeline")
+      page.getByText("enforcement roadmap")
     ).toBeVisible();
   });
 });

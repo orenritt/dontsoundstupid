@@ -130,7 +130,7 @@ test.describe("Briefing feedback loop", () => {
 
     // Verify item is visible first
     await expect(
-      page.getByText("GPU Supply Chain Shifts")
+      page.getByText("NVIDIA announced new H200")
     ).toBeVisible();
 
     const iKnewThis = page.getByRole("button", { name: "I knew this" });

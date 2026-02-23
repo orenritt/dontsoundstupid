@@ -10,27 +10,7 @@ import {
   pgEnum,
   uniqueIndex,
   index,
-  customType,
 } from "drizzle-orm/pg-core";
-
-const vector = customType<{ data: number[]; driverParam: string }>({
-  dataType() {
-    return "vector(1536)";
-  },
-  toDriver(value: number[]): string {
-    return `[${value.join(",")}]`;
-  },
-  fromDriver(value: unknown): number[] {
-    if (typeof value === "string") {
-      return value
-        .replace(/^\[/, "")
-        .replace(/]$/, "")
-        .split(",")
-        .map(Number);
-    }
-    return value as number[];
-  },
-});
 
 export const onboardingStatusEnum = pgEnum("onboarding_status", [
   "not_started",
@@ -636,7 +616,7 @@ export const signals = pgTable(
     content: text("content").notNull(),
     summary: text("summary").notNull(),
     metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
-    embedding: vector("embedding"),
+    embedding: jsonb("embedding").$type<number[]>(),
     embeddingModel: text("embedding_model"),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
     ingestedAt: timestamp("ingested_at", { withTimezone: true })

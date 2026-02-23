@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
 
 const NAV_ITEMS = [
   {
@@ -45,24 +46,35 @@ export default function AppNav() {
   return (
     <>
       {/* Desktop sidebar */}
-      <nav className="hidden md:flex fixed left-0 top-0 h-screen w-16 flex-col items-center justify-center gap-6 border-r border-white/10 bg-[#0a0a0a] z-50">
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              title={item.label}
-              className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-                active
-                  ? "text-white bg-white/10"
-                  : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
-              }`}
-            >
-              {item.icon}
-            </Link>
-          );
-        })}
+      <nav className="hidden md:flex fixed left-0 top-0 h-screen w-16 flex-col items-center gap-6 border-r border-white/10 bg-[#0a0a0a] z-50 py-6">
+        <div className="flex-1 flex flex-col items-center justify-center gap-6">
+          {NAV_ITEMS.map((item) => {
+            const active = isActive(pathname, item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={item.label}
+                className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                  active
+                    ? "text-white bg-white/10"
+                    : "text-gray-500 hover:text-gray-300 hover:bg-white/5"
+                }`}
+              >
+                {item.icon}
+              </Link>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => signOut({ callbackUrl: "/auth/login" })}
+          title="Log Out"
+          className="flex items-center justify-center w-10 h-10 rounded-lg text-gray-500 hover:text-red-400 hover:bg-white/5 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+          </svg>
+        </button>
       </nav>
 
       {/* Mobile bottom tab bar */}
@@ -82,6 +94,15 @@ export default function AppNav() {
             </Link>
           );
         })}
+        <button
+          onClick={() => signOut({ callbackUrl: "/auth/login" })}
+          className="flex flex-col items-center gap-0.5 text-gray-500 hover:text-red-400 transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+          </svg>
+          <span className="text-[10px]">Log Out</span>
+        </button>
       </nav>
     </>
   );

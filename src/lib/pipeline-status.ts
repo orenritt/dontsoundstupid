@@ -18,6 +18,7 @@ export interface PipelineStatus {
   updatedAt: number;
   briefingId?: string;
   error?: string;
+  diagnostics?: Record<string, unknown>;
 }
 
 const STAGE_LABELS: Record<PipelineStage, string> = {
@@ -38,7 +39,7 @@ const statusMap = new Map<string, PipelineStatus>();
 
 const TTL_MS = 10 * 60 * 1000;
 
-export function updatePipelineStatus(userId: string, stage: PipelineStage, extra?: { briefingId?: string; error?: string }) {
+export function updatePipelineStatus(userId: string, stage: PipelineStage, extra?: { briefingId?: string; error?: string; diagnostics?: Record<string, unknown> }) {
   const existing = statusMap.get(userId);
   statusMap.set(userId, {
     stage,
@@ -47,6 +48,7 @@ export function updatePipelineStatus(userId: string, stage: PipelineStage, extra
     updatedAt: Date.now(),
     briefingId: extra?.briefingId,
     error: extra?.error,
+    diagnostics: extra?.diagnostics,
   });
 }
 

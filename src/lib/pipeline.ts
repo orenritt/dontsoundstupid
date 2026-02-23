@@ -41,26 +41,47 @@ export async function runPipeline(
   }
 
   // Ingest fresh signals before scoring
+  const diagnostics: Record<string, unknown> = {};
+
   updatePipelineStatus(userId, "ingesting-news");
   try {
     await deriveNewsQueries(userId);
     await refreshQueriesForUser(userId);
-    await pollNewsQueries(crypto.randomUUID());
+    const newsResult = await pollNewsQueries(crypto.randomUUID());
+    diagnostics.news = {
+      queriesPolled: newsResult.queriesPolled,
+      articlesFound: newsResult.articlesFound,
+      signalsCreated: newsResult.signals.length,
+      errors: newsResult.errorsEncounted,
+    };
+    console.log(`[pipeline] News ingestion:`, diagnostics.news);
   } catch (err) {
+    diagnostics.news = { error: err instanceof Error ? err.message : String(err) };
     console.error("[pipeline] News ingestion failed (continuing):", err);
   }
 
   try {
-    await deriveFeedsForUser(userId);
-    await pollSyndicationFeeds();
+    const feedsCreated = await deriveFeedsForUser(userId);
+    const synResult = await pollSyndicationFeeds();
+    diagnostics.syndication = {
+      feedsCreated,
+      feedsPolled: synResult.feedsPolled,
+      newItems: synResult.newItems,
+      errors: synResult.errors,
+    };
+    console.log(`[pipeline] Syndication ingestion:`, diagnostics.syndication);
   } catch (err) {
+    diagnostics.syndication = { error: err instanceof Error ? err.message : String(err) };
     console.error("[pipeline] Syndication ingestion failed (continuing):", err);
   }
 
   updatePipelineStatus(userId, "ai-research");
   try {
-    await runAiResearch(userId);
+    const aiSignals = await runAiResearch(userId);
+    diagnostics.aiResearch = { signalsReturned: aiSignals.length };
+    console.log(`[pipeline] AI research:`, diagnostics.aiResearch);
   } catch (err) {
+    diagnostics.aiResearch = { error: err instanceof Error ? err.message : String(err) };
     console.error("[pipeline] AI research failed (continuing):", err);
   }
 
@@ -85,6 +106,7 @@ export async function runPipeline(
         sourceUrl: signals.sourceUrl,
         metadata: signals.metadata,
         layer: signals.layer,
+        ingestedAt: signals.ingestedAt,
       })
       .from(signals)
       .where(
@@ -95,6 +117,30 @@ export async function runPipeline(
       )
       .orderBy(signals.ingestedAt)
       .limit(200);
+
+    const allSignalRows = await db
+      .select({ id: signals.id, ingestedAt: signals.ingestedAt, layer: signals.layer })
+      .from(signals)
+      .where(inArray(signals.id, userSignalIds))
+      .limit(500);
+
+    diagnostics.signalLoading = {
+      provenanceRows: userSignalIds.length,
+      totalSignalsForUser: allSignalRows.length,
+      signalsWithin2Days: signalRows.length,
+      oldestSignal: allSignalRows.length > 0
+        ? allSignalRows.reduce((oldest, s) => {
+            const d = s.ingestedAt ? new Date(s.ingestedAt) : new Date(0);
+            return d < oldest ? d : oldest;
+          }, new Date()).toISOString()
+        : null,
+      cutoffDate: twoDaysAgo.toISOString(),
+      layerBreakdown: allSignalRows.reduce((acc, s) => {
+        acc[s.layer || "unknown"] = (acc[s.layer || "unknown"] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>),
+    };
+    console.log(`[pipeline] Signal loading:`, diagnostics.signalLoading);
 
     candidateSignals = signalRows.map((r) => ({
       title: r.title,
@@ -107,11 +153,14 @@ export async function runPipeline(
         r.layer ||
         null,
     }));
+  } else {
+    diagnostics.signalLoading = { provenanceRows: 0 };
+    console.log(`[pipeline] Signal loading: no provenance rows for user`);
   }
 
   if (candidateSignals.length === 0) {
-    console.error(`[pipeline] No candidate signals for user ${userId}. signalProvenance rows: ${userSignalIds.length}, signals checked against last 2 days.`);
-    updatePipelineStatus(userId, "failed", { error: "No signals found. Ingestion may still be warming up — try again in a minute." });
+    console.error(`[pipeline] No candidate signals for user ${userId}. Full diagnostics:`, JSON.stringify(diagnostics, null, 2));
+    updatePipelineStatus(userId, "failed", { error: "No signals found. Ingestion may still be warming up — try again in a minute.", diagnostics });
     return null;
   }
 

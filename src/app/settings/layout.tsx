@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
+import { signOut } from "next-auth/react";
 
 const NAV_ITEMS = [
   { label: "Profile", href: "/settings" },
@@ -56,7 +57,13 @@ export default function SettingsLayout({
               <path d="M11.25 4.5L6.75 9l4.5 4.5" />
             </svg>
           </Link>
-          <h1 className="text-lg font-semibold">Settings</h1>
+          <h1 className="text-lg font-semibold flex-1">Settings</h1>
+          <button
+            onClick={() => signOut({ callbackUrl: "/auth/login" })}
+            className="text-xs text-white/40 hover:text-red-400 transition-colors px-2 py-1"
+          >
+            Log Out
+          </button>
         </div>
         <nav className="flex border-b border-white/10">
           {NAV_ITEMS.map((item) => {
@@ -118,6 +125,17 @@ export default function SettingsLayout({
               );
             })}
           </nav>
+          <div className="mt-auto pt-6">
+            <button
+              onClick={() => signOut({ callbackUrl: "/auth/login" })}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/40 hover:text-red-400 hover:bg-white/5 transition-colors w-full"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+              </svg>
+              Log Out
+            </button>
+          </div>
         </aside>
 
         <main className="flex-1 overflow-y-auto">
