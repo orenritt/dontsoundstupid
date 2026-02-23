@@ -40,6 +40,8 @@ type PageState =
 const STAGE_ORDER = [
   "starting",
   "loading-profile",
+  "ingesting-news",
+  "ai-research",
   "loading-signals",
   "scoring",
   "composing",

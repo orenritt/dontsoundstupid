@@ -7,6 +7,9 @@ import type { AgentScoringConfig } from "../models/relevance";
 import { sendBriefingEmail } from "./delivery";
 import { extractAndSeedEntities } from "./briefing-entity-extraction";
 import { updatePipelineStatus } from "./pipeline-status";
+import { deriveNewsQueries, pollNewsQueries, refreshQueriesForUser } from "./news-ingestion";
+import { deriveFeedsForUser, pollSyndicationFeeds } from "./syndication";
+import { runAiResearch } from "./ai-research";
 
 interface RawSignal {
   title: string;
@@ -35,6 +38,30 @@ export async function runPipeline(
   if (!user || !profile) {
     updatePipelineStatus(userId, "failed", { error: "User or profile not found" });
     return null;
+  }
+
+  // Ingest fresh signals before scoring
+  updatePipelineStatus(userId, "ingesting-news");
+  try {
+    await deriveNewsQueries(userId);
+    await refreshQueriesForUser(userId);
+    await pollNewsQueries(crypto.randomUUID());
+  } catch (err) {
+    console.error("[pipeline] News ingestion failed (continuing):", err);
+  }
+
+  try {
+    await deriveFeedsForUser(userId);
+    await pollSyndicationFeeds();
+  } catch (err) {
+    console.error("[pipeline] Syndication ingestion failed (continuing):", err);
+  }
+
+  updatePipelineStatus(userId, "ai-research");
+  try {
+    await runAiResearch(userId);
+  } catch (err) {
+    console.error("[pipeline] AI research failed (continuing):", err);
   }
 
   updatePipelineStatus(userId, "loading-signals");
@@ -83,7 +110,8 @@ export async function runPipeline(
   }
 
   if (candidateSignals.length === 0) {
-    updatePipelineStatus(userId, "failed", { error: "No candidate signals found" });
+    console.error(`[pipeline] No candidate signals for user ${userId}. signalProvenance rows: ${userSignalIds.length}, signals checked against last 2 days.`);
+    updatePipelineStatus(userId, "failed", { error: "No signals found. Ingestion may still be warming up — try again in a minute." });
     return null;
   }
 
