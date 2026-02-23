@@ -46,9 +46,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ enriched });
   } catch (error) {
-    console.error("LinkedIn enrichment failed:", error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("LinkedIn enrichment failed:", msg, error);
     return NextResponse.json(
-      { error: "Failed to process LinkedIn profile" },
+      { error: `Failed to process LinkedIn profile: ${msg}` },
       { status: 500 }
     );
   }
