@@ -13,25 +13,25 @@
 
 ## 3. Query Derivation
 
-- [ ] 3.1 Implement `deriveNewsQueries(userId)` — reads user profile and generates GDELT query records from impress list companies, peer orgs, intelligence goals, industry topics
-- [ ] 3.2 Implement geographic filter application from profile's `geographicRelevance` field
-- [ ] 3.3 Implement content-hash-based query deduplication across users
-- [ ] 3.4 Implement query refresh logic — regenerate queries on profile update, deactivate orphaned queries without deleting
+- [x] 3.1 Implement `deriveNewsQueries(userId)` — reads user profile and generates GDELT query records from impress list companies, peer orgs, intelligence goals, industry topics
+- [x] 3.2 Implement geographic filter application from profile's `geographicRelevance` field
+- [x] 3.3 Implement content-hash-based query deduplication across users
+- [x] 3.4 Implement query refresh logic — regenerate queries on profile update, deactivate orphaned queries without deleting
 
 ## 4. GDELT DOC API Client
 
-- [ ] 4.1 Implement `GdeltDocClient` with method `searchArticles(query, timespan, maxResults)` that calls the GDELT DOC 2.0 API and returns normalized article results
-- [ ] 4.2 Implement NEAR operator query formatting for company-name + industry-term combinations
-- [ ] 4.3 Implement sourcecountry filter parameter support
-- [ ] 4.4 Implement tone metadata extraction from API response (positive, negative, polarity, activity, self-reference)
-- [ ] 4.5 Implement rate limit detection and configurable cooldown (default 60s)
-- [ ] 4.6 Implement inter-query delay (default 2s) and max-queries-per-cycle cap (default 50)
+- [x] 4.1 Implement `GdeltDocClient` with method `searchArticles(query, timespan, maxResults)` that calls the GDELT DOC 2.0 API and returns normalized article results
+- [x] 4.2 Implement NEAR operator query formatting for company-name + industry-term combinations
+- [x] 4.3 Implement sourcecountry filter parameter support
+- [x] 4.4 Implement tone metadata extraction from API response (positive, negative, polarity, activity, self-reference)
+- [x] 4.5 Implement rate limit detection and configurable cooldown (default 60s)
+- [x] 4.6 Implement inter-query delay (default 2s) and max-queries-per-cycle cap (default 50)
 
 ## 5. GKG Entity Lookup
 
-- [ ] 5.1 Implement `GdeltGkgClient` with methods `lookupOrganization(name)` and `lookupPerson(name)` that query GDELT GKG extracted tables
-- [ ] 5.2 Implement GKG result normalization into signal format with `gkg_source: true` metadata tag
-- [ ] 5.3 Implement dedup check against DOC API results to avoid duplicate signals from both sources
+- [x] 5.1 Implement `GdeltGkgClient` with methods `lookupOrganization(name)` and `lookupPerson(name)` that query GDELT GKG extracted tables
+- [x] 5.2 Implement GKG result normalization into signal format with `gkg_source: true` metadata tag
+- [x] 5.3 Implement dedup check against DOC API results to avoid duplicate signals from both sources
 
 ## 6. News Ingestion Layer
 
