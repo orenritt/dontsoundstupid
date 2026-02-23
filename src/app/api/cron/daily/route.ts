@@ -50,11 +50,15 @@ export async function GET(request: Request) {
       }
 
       const briefingId = await runPipeline(user.id);
-      results.push({
-        userId: user.id,
-        status: briefingId ? "success" : "no_content",
-        briefingId: briefingId ?? undefined,
-      });
+      if (briefingId === "skipped") {
+        results.push({ userId: user.id, status: "skipped_not_interesting" });
+      } else {
+        results.push({
+          userId: user.id,
+          status: briefingId ? "success" : "no_content",
+          briefingId: briefingId ?? undefined,
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error(`Pipeline failed for user ${user.id}:`, message);

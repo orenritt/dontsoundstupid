@@ -9,6 +9,7 @@ export type PipelineStage =
   | "saving"
   | "delivering"
   | "done"
+  | "skipped-nothing-interesting"
   | "failed";
 
 export interface PipelineStatus {
@@ -32,6 +33,7 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
   "saving": "Saving briefing...",
   "delivering": "Sending delivery...",
   "done": "Briefing ready",
+  "skipped-nothing-interesting": "Nothing interesting enough to send today",
   "failed": "Pipeline failed",
 };
 

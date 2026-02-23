@@ -21,6 +21,7 @@ import type {
   AgentScoringConfig,
   SignalSelection,
 } from "../models/relevance";
+import { executeCheckSignalMomentum } from "./signal-momentum";
 import { createLogger } from "./logger";
 
 const log = createLogger("scoring-agent");
@@ -111,9 +112,14 @@ Available tools:
     Args: { "signal_indices": [<optional: indices to check, defaults to all>] }
     Returns: per-signal analysis of whether it fills a knowledge gap, covers an expert area, and an educational value rating.
 
+13. check_signal_momentum
+    Checks how frequently a topic or entity has been appearing in the signal pool over recent time windows. Use this to detect what's picking up steam — a topic appearing in 7 signals this week vs. 1 signal last week is building momentum, even if no single signal about it is individually remarkable. Combine with query_google_trends to get both internal (signal pool) and external (public search interest) momentum.
+    Args: { "queries": ["<term1>", "<term2>", ...], "windowDays": <optional: days per window, default 7> }
+    Returns: per-query frequency data for current vs. prior window, acceleration classification (surging/rising/stable/declining/new), and recent matching signals.
+
 When you've made your decision, call:
 
-13. submit_selections
+14. submit_selections
     Submit your final picks.
     Args: { "selections": [{ "signalIndex": <number>, "reason": "<reason-type>", "reasonLabel": "<human-readable label>", "confidence": <0-1>, "noveltyAssessment": "<why this is novel to the user>", "attribution": "<why this matters to THIS user specifically>" }] }
     reason must be one of: people-are-talking, meeting-prep, new-entrant, fundraise-or-deal, regulatory-or-policy, term-emerging, network-activity, your-space, competitive-move, event-upcoming, other.
@@ -128,7 +134,7 @@ CRITICAL FORMAT REQUIREMENT: Every response you give MUST be a raw JSON object �
 Do NOT write text like "I'll call check_today_meetings" — just output the JSON directly. Do NOT use markdown code fences. Do NOT explain your reasoning in your response. Just output the JSON tool call.`;
 
 function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number): string {
-  return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to pick the ${targetCount} most valuable signals from ${candidateCount} candidates.
+  return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to select up to ${targetCount} signals from ${candidateCount} candidates that clear the interestingness bar. You may select fewer — including zero — if the pool doesn't warrant a full briefing.
 
 THE USER:
 - Name: ${userContext.name || "Unknown"}
@@ -141,9 +147,19 @@ THE USER:
 - Knowledge gaps: ${userContext.knowledgeGaps.length > 0 ? userContext.knowledgeGaps.join(", ") : "not specified"}
 ${userContext.rapidFireClassifications.length > 0 ? `- Quick classifications:\n${userContext.rapidFireClassifications.map((r) => `  "${r.topic}" (${r.context}): ${r.response}`).join("\n")}` : ""}
 
-YOUR FIRST MOVE: Call check_today_meetings immediately.
+YOUR FIRST TWO MOVES (in order):
+1. Call check_today_meetings immediately.
+2. Call check_signal_momentum with the user's core topics and any key entities you notice in the candidate list. This tells you what's picking up steam BEFORE you start evaluating individual signals. Any topic that comes back as "surging" or "rising" deserves special attention — scan the candidates for signals about those topics and give them a closer look. Something quietly building across the signal pool is often the most valuable thing you can surface.
 
-SELECTION BAR — VERY HIGH. Only select signals the user genuinely needs to know. Ask: "Would this person look stupid in a meeting tomorrow if they didn't know this?" If no, skip it. This is a need-to-know briefing, not a nice-to-know digest.
+INTERESTINGNESS THRESHOLD — Every signal you select MUST clear ALL of these:
+1. THE SHARP COLLEAGUE TEST: Would a knowledgeable person in this user's exact niche mention this unprompted over coffee? If a sharp colleague wouldn't bring it up, it doesn't clear the bar.
+2. CONCRETENESS: There must be a specific event, number, entity, or development. No trend pieces, think pieces, or rehashes. Something happened — what?
+3. RECENCY: The development must be genuinely new — not a repackaging of something from last week or a warmed-over take.
+4. CONSEQUENCE: It must change what the user would say, do, or think about something this week. If it doesn't change anything, it's noise.
+
+MOMENTUM BOOST: If check_signal_momentum shows a topic is surging or rising in the signal pool, that's evidence something real is building — this lowers the bar slightly for signals about that topic. But momentum alone does not make a vague or stale signal interesting. It still needs concreteness and recency.
+
+If NO candidates clear the bar, submit an empty selections array. An empty briefing is the correct output when nothing is genuinely interesting. Silence is better than noise. We are NOT trying to pump news — we are trying to make sure that if something worth knowing happens, the user knows about it.
 
 REJECT these aggressively:
 - Vague trend pieces ("AI is transforming X") — unless there is a specific, concrete development
@@ -169,12 +185,16 @@ YOUR SELECTION CRITERIA (in priority order):
    - Use the "meeting-prep" reason with a specific label naming the person (e.g., "Because you're meeting Sarah Chen at 2pm").
 2. NOVELTY — Does this tell the user something they don't already know? Use check_knowledge_graph and search_briefing_history to verify you're not repeating yourself. Don't waste their time with things they're expert in, unless the development is genuinely new.
 3. RELEVANCE — Does this connect to their role, initiatives, concerns, or tracked topics? The stronger the connection, the better. Use check_expertise_gaps to find signals that fill knowledge gaps.
-4. MOMENTUM — Is this topic gaining or losing public attention? Use query_google_trends to check whether key terms are surging, stable, or fading. A signal about a rising trend is more valuable than one about something peaking or declining.
+4. MOMENTUM — You already called check_signal_momentum early. Now USE what you learned:
+   - If a topic came back as "surging" or "rising", actively look for candidate signals about that topic. These are things picking up steam — the kind of emerging developments people start talking about. Give them special attention.
+   - If a topic came back as "new" (appeared for the first time this window), that's worth flagging too — something just entered the radar.
+   - Cross-check with query_google_trends for EXTERNAL momentum — is public search interest also rising? A topic surging in BOTH the signal pool and public interest is strong evidence of genuine emerging relevance.
+   - A topic declining in both is weak. Use specific terms, not generic ones like "AI."
 5. COHERENCE — Use cross_reference_signals to find compound narratives (signals that combine into a bigger story) and eliminate redundancies. A briefing that tells a coherent story across its items is better than ${targetCount} disconnected facts.
 6. DIVERSITY — Cover different areas of their interest rather than ${targetCount} signals about the same thing.
 7. FEEDBACK ALIGNMENT — Use check_feedback_history to honor their tune-more and tune-less signals.
 
-IT IS BETTER TO SELECT FEWER THAN ${targetCount} SIGNALS than to pad the briefing with filler. If only 2 of ${candidateCount} candidates clear the bar, select 2. An empty slot is better than a weak one.
+IT IS BETTER TO SELECT FEWER THAN ${targetCount} SIGNALS than to pad the briefing with filler. If only 2 of ${candidateCount} candidates clear the bar, select 2. If none clear the bar, select 0. An empty briefing is better than a weak one.
 
 SIGNAL LAYERS — Candidates come from multiple ingestion layers:
 - "ai-research": LLM-generated research signals
@@ -1259,6 +1279,8 @@ async function executeTool(
       return executeCrossReferenceSignals(signals, args as { signal_indices?: number[] });
     case "check_expertise_gaps":
       return executeCheckExpertiseGaps(userId, signals, args as { signal_indices?: number[] });
+    case "check_signal_momentum":
+      return executeCheckSignalMomentum(args as { queries: string[]; windowDays?: number });
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
@@ -1407,7 +1429,7 @@ export async function runScoringAgent(
 
     if (toolCall.tool === "submit_selections") {
       const selections = parseSelections(toolCall.args);
-      if (!selections || selections.length === 0) {
+      if (selections === null) {
         messages.push({ role: "assistant", content: response.content });
         messages.push({
           role: "user",
@@ -1462,7 +1484,7 @@ export async function runScoringAgent(
       ...messages,
       {
         role: "user",
-        content: `You've used all your tool rounds. You MUST now call submit_selections with your top ${config.targetSelections} picks based on what you've learned. Respond with ONLY the JSON tool call, no text.`,
+        content: `You've used all your tool rounds. You MUST now call submit_selections with your picks based on what you've learned. Select only signals that clear the interestingness bar — if none do, submit an empty selections array. Respond with ONLY the JSON tool call, no text.`,
       },
     ],
     { model: config.model, temperature: config.temperature, maxTokens: 4096 }
@@ -1474,7 +1496,7 @@ export async function runScoringAgent(
   const finalCall = parseToolCall(forceResponse.content);
   if (finalCall?.tool === "submit_selections") {
     const selections = parseSelections(finalCall.args);
-    if (selections && selections.length > 0) {
+    if (selections !== null) {
       ulog.info({ selections: selections.length, totalMs: Date.now() - start }, "Scoring agent completed (forced)");
       return {
         userId,

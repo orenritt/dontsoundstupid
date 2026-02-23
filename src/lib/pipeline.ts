@@ -186,10 +186,19 @@ export async function runPipeline(
   const config = { ...DEFAULT_AGENT_CONFIG, ...agentConfig };
   const agentResult = await runScoringAgent(userId, candidateSignals, config);
 
-  if (!agentResult || agentResult.selections.length === 0) {
-    ulog.error({ agentResult: agentResult ? "empty selections" : "null", elapsed: Date.now() - pipelineStart }, "Scoring agent returned no selections");
-    updatePipelineStatus(userId, "failed", { error: "Scoring agent returned no selections" });
+  if (!agentResult) {
+    ulog.error({ elapsed: Date.now() - pipelineStart }, "Scoring agent returned null — pipeline failure");
+    updatePipelineStatus(userId, "failed", { error: "Scoring agent returned no result" });
     return null;
+  }
+
+  if (agentResult.selections.length === 0) {
+    const totalMs = Date.now() - pipelineStart;
+    ulog.info({ candidateCount: candidateSignals.length, totalMs }, "No signals cleared interestingness threshold — skipping briefing");
+    updatePipelineStatus(userId, "skipped-nothing-interesting", {
+      diagnostics: { candidateCount: candidateSignals.length, scoringReasoning: agentResult.reasoning.slice(0, 1000) },
+    });
+    return "skipped";
   }
 
   ulog.info({ selections: agentResult.selections.length, scoringMs: Date.now() - scoringStart, toolCalls: agentResult.toolCallLog.length, model: agentResult.modelUsed }, "Scoring complete");
@@ -228,7 +237,7 @@ export async function runPipeline(
       [
         {
           role: "system",
-          content: `You write briefing items. Each item is ONE line — two short sentences max. Plain English. No jargon, no marketing speak, no filler words. Say what happened and why it matters to this person, nothing else.
+          content: `You write briefing items. You will receive 1 to 5 signals — produce exactly one item per signal. Each item is ONE line — two short sentences max. Plain English. No jargon, no marketing speak, no filler words. Say what happened and why it matters to this person, nothing else.
 
 Rules:
 - State the concrete fact first, then the "so what" in the same breath.

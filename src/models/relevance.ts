@@ -63,6 +63,7 @@ export type AgentToolName =
   | "search_briefing_history"
   | "cross_reference_signals"
   | "check_expertise_gaps"
+  | "check_signal_momentum"
   | "submit_selections";
 
 export interface AgentToolCall {

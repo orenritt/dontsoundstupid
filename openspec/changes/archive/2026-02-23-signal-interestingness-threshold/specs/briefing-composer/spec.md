@@ -1,8 +1,4 @@
-## Purpose
-
-The Briefing Composer is the LLM-powered component that takes scored signals from the relevance engine and composes personalized daily briefings for each user. It produces exactly 5 bullet points, each 1-2 sentences, each with a reason pre-title explaining why it's being served and a link to the most pertinent source. The tone is dry, all-business, no personality — a sharp "don't fuck up" reality check. Scoring, urgency, and priority are entirely behind the scenes; the user never sees numeric scores or priority labels.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Daily Briefing Generation
 
@@ -70,8 +66,8 @@ The system MUST use an LLM to synthesize top-scored signals into briefing items.
 
 #### Scenario: Signal synthesis
 
-- **WHEN** the composer receives scored signals for a user
-- **THEN** the system MUST send the top signals along with user context to the configured LLM
+- **WHEN** the composer receives 1 to 5 scored signals for a user
+- **THEN** the system MUST send the signals along with user context to the configured LLM
 - **AND** MUST produce one briefing item per scored signal
 - **AND** each item MUST be a tight synthesis, not a verbatim copy of the signal summary
 
@@ -91,6 +87,7 @@ The system MUST format the composed briefing for the user's delivery channel whi
 - **THEN** the system MUST render the briefing as HTML with each item as a styled block: a bold item number prefix (e.g., "**1.**"), reason label in small muted text, body text, source link below
 - **AND** MUST use responsive layout for mobile email clients
 - **AND** MUST set a reply-to address that routes to the inbound email processing endpoint
+- **AND** item numbering MUST be sequential starting from 1 up to the actual item count
 
 #### Scenario: Slack delivery
 
@@ -107,72 +104,3 @@ The system MUST format the composed briefing for the user's delivery channel whi
 
 - **WHEN** the delivery channel is WhatsApp
 - **THEN** the system MUST render using WhatsApp-compatible markdown with numbered items, bold reason labels, and inline source links (e.g., "*1. People are talking* ...")
-
-### Requirement: Context Injection
-
-The system MUST inject user context into the LLM prompt to frame the briefing for the user's role and priorities.
-
-#### Scenario: User context provided to LLM
-
-- **WHEN** the composer builds the LLM prompt
-- **THEN** the system MUST include the user's current role, company, conversation-derived context (initiatives, concerns, topics, expertise areas), and rapid-fire classifications
-- **AND** the LLM MUST use this context to select and frame signals from the user's perspective
-- **AND** the context MUST NOT leak into the briefing text — it informs selection, not narration
-
-#### Scenario: Context freshness
-
-- **WHEN** the composer builds the prompt
-- **THEN** the system MUST use the latest context snapshot, not stale cached data
-
-### Requirement: Signal Attribution
-
-The system MUST link each briefing item back to its source signals for drill-down.
-
-#### Scenario: Source signal linking
-
-- **WHEN** a composed briefing item references one or more signals
-- **THEN** the system MUST include the source signal IDs in the item metadata
-- **AND** MUST support a "tell me more" interaction that retrieves the full signal details
-
-#### Scenario: Source URL selection
-
-- **WHEN** the composer selects a source URL for each item
-- **THEN** the system MUST pick the single most authoritative/relevant source URL from the underlying signals
-- **AND** MUST include a short label identifying the source (publication name, not the full URL)
-
-### Requirement: Meeting-Aware Briefing
-
-The system MUST prioritize meeting-relevant intelligence when the user has calendar sync active.
-
-#### Scenario: Upcoming meetings detected
-
-- **WHEN** the user has calendar sync active and meetings scheduled for today
-- **THEN** meeting-relevant signals MUST be scored higher so they naturally appear among the 5 items
-- **AND** those items MUST use the "meeting-prep" reason with the specific meeting/attendee context in the reason label
-- **AND** meeting prep MUST NOT be a separate section — it's woven into the 5 bullets like everything else
-
-#### Scenario: No upcoming meetings
-
-- **WHEN** the user has no meetings scheduled for the briefing day
-- **THEN** the system MUST compose the briefing normally without meeting-related reason labels
-
-### Requirement: Delivery Scheduling and Retry
-
-The system MUST schedule briefing deliveries per user timezone and retry on failure.
-
-#### Scenario: Timezone-aware scheduling
-
-- **WHEN** a user configures a preferred delivery time and timezone
-- **THEN** the system MUST calculate the next delivery timestamp in UTC based on the user's local time
-- **AND** MUST update the schedule after each delivery
-
-#### Scenario: Delivery retry on failure
-
-- **WHEN** a delivery attempt fails (network error, channel unavailable)
-- **THEN** the system MUST retry up to 3 times with exponential backoff
-- **AND** MUST record each attempt with status (pending/sent/failed/bounced) and error message
-
-#### Scenario: Delivery tracking
-
-- **WHEN** a briefing is delivered or delivery fails
-- **THEN** the system MUST record a DeliveryAttempt with the briefing ID, channel used, status, timestamp, and any error details

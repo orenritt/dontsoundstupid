@@ -60,6 +60,7 @@ describe("pipeline-status", () => {
         ["saving", "Saving briefing..."],
         ["delivering", "Sending delivery..."],
         ["done", "Briefing ready"],
+        ["skipped-nothing-interesting", "Nothing interesting enough to send today"],
         ["failed", "Pipeline failed"],
       ] as const;
 

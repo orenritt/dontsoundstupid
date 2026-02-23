@@ -238,12 +238,16 @@ export async function POST(request: NextRequest) {
             // non-critical
           }
           const briefingId = await runPipeline(user.id);
-          results.push({
-            userId: user.id,
-            email: user.email,
-            status: briefingId ? "success" : "no_content",
-            briefingId: briefingId ?? undefined,
-          });
+          if (briefingId === "skipped") {
+            results.push({ userId: user.id, email: user.email, status: "skipped_not_interesting" });
+          } else {
+            results.push({
+              userId: user.id,
+              email: user.email,
+              status: briefingId ? "success" : "no_content",
+              briefingId: briefingId ?? undefined,
+            });
+          }
         } catch (err) {
           results.push({
             userId: user.id,
