@@ -81,6 +81,7 @@ export interface SignalSelection {
   reasonLabel: string;
   confidence: number;
   noveltyAssessment: string;
+  attribution: string;
   toolsUsed: AgentToolName[];
 }
 

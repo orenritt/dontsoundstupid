@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { users, briefings } from "@/lib/schema";
 import { eq, and, gte } from "drizzle-orm";
 import { runPipeline } from "@/lib/pipeline";
+import { refreshQueriesForUser } from "@/lib/news-ingestion";
 
 const CRON_SECRET = process.env.CRON_SECRET;
 
@@ -42,6 +43,12 @@ export async function GET(request: Request) {
     }
 
     try {
+      try {
+        await refreshQueriesForUser(user.id);
+      } catch (err) {
+        console.error(`Query refresh failed for user ${user.id} (non-critical):`, err);
+      }
+
       const briefingId = await runPipeline(user.id);
       results.push({
         userId: user.id,

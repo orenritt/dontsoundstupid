@@ -3,11 +3,15 @@ import { db } from "../db";
 import {
   syndicationFeeds,
   userFeedSubscriptions,
+  userNewsletterSubscriptions,
+  newsletterRegistry,
   peerOrganizations,
   impressContacts,
   users,
+  signals,
+  signalProvenance,
 } from "../schema";
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, sql } from "drizzle-orm";
 import { discoverFeeds } from "./feed-discovery";
 
 const parser = new Parser({
@@ -28,6 +32,7 @@ export interface SyndicationSignal {
     author?: string;
     categories?: string[];
   };
+  newsletterProvenance?: { userId: string; newsletterName: string }[];
 }
 
 interface IngestionResult {
@@ -39,7 +44,11 @@ interface IngestionResult {
 
 export async function deriveFeedsForUser(userId: string): Promise<number> {
   const peerOrgs = await db
-    .select({ domain: peerOrganizations.domain, name: peerOrganizations.name })
+    .select({
+      domain: peerOrganizations.domain,
+      name: peerOrganizations.name,
+      entityType: peerOrganizations.entityType,
+    })
     .from(peerOrganizations)
     .where(
       and(eq(peerOrganizations.userId, userId), eq(peerOrganizations.confirmed, true))
@@ -55,8 +64,9 @@ export async function deriveFeedsForUser(userId: string): Promise<number> {
   const domains = new Set<string>();
   const derivations = new Map<string, { derivedFrom: string; profileReference: string }>();
 
+  const feedableTypes = new Set(["company", "publication", "community", "research-group", "analyst", "influencer"]);
   for (const org of peerOrgs) {
-    if (org.domain) {
+    if (org.domain && feedableTypes.has(org.entityType || "company")) {
       domains.add(org.domain);
       derivations.set(org.domain, {
         derivedFrom: "peer-org",
@@ -65,18 +75,29 @@ export async function deriveFeedsForUser(userId: string): Promise<number> {
     }
   }
 
-  const companyDomains = contacts
-    .map((c) => c.company)
-    .filter(Boolean)
-    .map((company) => `${company!.toLowerCase().replace(/[^a-z0-9]/g, "")}.com`);
+  const seenCompanies = new Set<string>();
+  for (const contact of contacts) {
+    if (!contact.company) continue;
+    const companyLower = contact.company.toLowerCase();
+    if (seenCompanies.has(companyLower)) continue;
+    seenCompanies.add(companyLower);
 
-  for (const domain of companyDomains) {
-    if (!domains.has(domain)) {
-      domains.add(domain);
-      derivations.set(domain, {
-        derivedFrom: "impress-list",
-        profileReference: domain,
-      });
+    // Try well-known domain patterns before naive fallback
+    const guesses = [
+      `${companyLower.replace(/[^a-z0-9]/g, "")}.com`,
+      `${companyLower.replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.com`,
+      `${companyLower.split(/\s+/)[0]}.com`,
+    ];
+
+    for (const domain of guesses) {
+      if (!domains.has(domain)) {
+        domains.add(domain);
+        derivations.set(domain, {
+          derivedFrom: "impress-list",
+          profileReference: contact.company,
+        });
+        break;
+      }
     }
   }
 
@@ -130,6 +151,28 @@ export async function deriveFeedsForUser(userId: string): Promise<number> {
   return feedsCreated;
 }
 
+/**
+ * For feeds linked to the newsletter registry, find all subscribed users
+ * so provenance can be created with trigger_reason "newsletter-subscription".
+ */
+async function getNewsletterSubscribersForFeed(
+  feedId: string
+): Promise<{ userId: string; newsletterName: string }[]> {
+  const rows = await db
+    .select({
+      userId: userNewsletterSubscriptions.userId,
+      newsletterName: newsletterRegistry.name,
+    })
+    .from(newsletterRegistry)
+    .innerJoin(
+      userNewsletterSubscriptions,
+      eq(userNewsletterSubscriptions.newsletterId, newsletterRegistry.id)
+    )
+    .where(eq(newsletterRegistry.syndicationFeedId, feedId));
+
+  return rows;
+}
+
 export async function pollSyndicationFeeds(): Promise<IngestionResult> {
   const now = new Date();
 
@@ -150,6 +193,17 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
       const parsed = await parser.parseURL(feed.feedUrl);
       result.feedsPolled++;
 
+      const newsletterSubs = await getNewsletterSubscribersForFeed(feed.id);
+
+      const feedSubscribers = await db
+        .select({
+          userId: userFeedSubscriptions.userId,
+          derivedFrom: userFeedSubscriptions.derivedFrom,
+          profileReference: userFeedSubscriptions.profileReference,
+        })
+        .from(userFeedSubscriptions)
+        .where(eq(userFeedSubscriptions.feedId, feed.id));
+
       const items = parsed.items || [];
       const lastItemDate = feed.lastItemDate
         ? new Date(feed.lastItemDate)
@@ -167,12 +221,13 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
           newestDate = pubDate;
         }
 
-        result.signals.push({
+        const sourceUrl = item.link || "";
+        const synSignal: SyndicationSignal = {
           layer: "syndication",
           title: item.title || "Untitled",
           content: item.content || item.contentSnippet || "",
           summary: item.contentSnippet || item.title || "",
-          sourceUrl: item.link || "",
+          sourceUrl,
           publishedAt: pubDate?.toISOString() || null,
           metadata: {
             feedUrl: feed.feedUrl,
@@ -180,8 +235,62 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
             author: item.creator || item["dc:creator"] || undefined,
             categories: item.categories || undefined,
           },
-        });
+          newsletterProvenance:
+            newsletterSubs.length > 0 ? newsletterSubs : undefined,
+        };
+        result.signals.push(synSignal);
         result.newItems++;
+
+        // Persist to signals table
+        if (sourceUrl) {
+          try {
+            const [inserted] = await db
+              .insert(signals)
+              .values({
+                layer: synSignal.newsletterProvenance ? "newsletter" : "syndication",
+                sourceUrl,
+                title: synSignal.title,
+                content: synSignal.content,
+                summary: synSignal.summary,
+                metadata: {
+                  feedUrl: feed.feedUrl,
+                  siteName: feed.siteName || "",
+                  ...(item.creator ? { author: item.creator } : {}),
+                },
+                publishedAt: pubDate || now,
+              })
+              .onConflictDoNothing()
+              .returning({ id: signals.id });
+
+            if (inserted) {
+              for (const sub of feedSubscribers) {
+                const reason = sub.derivedFrom === "impress-list" ? "impress-list" : "peer-org";
+                await db
+                  .insert(signalProvenance)
+                  .values({
+                    signalId: inserted.id,
+                    userId: sub.userId,
+                    triggerReason: reason,
+                    profileReference: sub.profileReference,
+                  })
+                  .onConflictDoNothing();
+              }
+              for (const ns of newsletterSubs) {
+                await db
+                  .insert(signalProvenance)
+                  .values({
+                    signalId: inserted.id,
+                    userId: ns.userId,
+                    triggerReason: "newsletter-subscription",
+                    profileReference: ns.newsletterName,
+                  })
+                  .onConflictDoNothing();
+              }
+            }
+          } catch (err) {
+            console.error("Failed to persist syndication signal:", err);
+          }
+        }
       }
 
       await db

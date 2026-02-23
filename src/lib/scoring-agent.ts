@@ -158,7 +158,7 @@ YOUR SELECTION CRITERIA (in priority order):
 
 SIGNAL LAYERS — Candidates come from multiple ingestion layers:
 - "ai-research": LLM-generated research signals
-- "news": Real-world news from GDELT (global news database). These signals include tone/sentiment metadata in their metadata field: tone_positive, tone_negative, tone_polarity, tone_activity, tone_self_reference. Use tone data to reason about sentiment shifts — e.g., "sentiment around X is turning negative" or "coverage of Y is unusually polarized". When a news signal corroborates or contradicts signals from other layers, note this as evidence for or against selection.
+- "news": Real-world news articles from NewsAPI.ai (150K+ global sources). These signals include sentiment metadata (a single -1 to +1 score) and detected entity concepts. Use sentiment to reason about shifts — e.g., "sentiment around X is turning negative". News signals include article body text (not just titles), so they carry richer context than other layers. When a news signal corroborates or contradicts signals from other layers, note this as evidence for or against selection.
 - Other layers: syndication, research, events, narrative, personal-graph, email-forward
 
 You have many tools available. ALWAYS call check_today_meetings first. Beyond that, use your judgment about which tools are worth calling for this particular set of candidates. Think carefully about whether each candidate is truly worth the user's limited attention. A mediocre briefing is worse than a short one.
@@ -279,6 +279,16 @@ async function executeCompareWithPeers(
     .filter((c) => c.name)
     .map((c) => c.name!.toLowerCase());
 
+  const contactInterestMap = new Map<string, string[]>();
+  for (const c of contacts) {
+    if (!c.name) continue;
+    const dd = c.deepDiveData as { interests?: string[]; focusAreas?: string[] } | null;
+    if (dd) {
+      const terms = [...(dd.interests || []), ...(dd.focusAreas || [])];
+      contactInterestMap.set(c.name.toLowerCase(), terms.map((t) => t.toLowerCase()));
+    }
+  }
+
   const indices = args.signal_indices ?? signals.map((_, i) => i);
   const results = indices.map((idx) => {
     const signal = signals[idx];
@@ -286,17 +296,49 @@ async function executeCompareWithPeers(
     const text = `${signal.title} ${signal.summary}`.toLowerCase();
     const matchedPeers = peerNames.filter((p) => text.includes(p));
     const matchedContacts = contactNames.filter((c) => text.includes(c));
+
+    const matchedInterests: { contact: string; matchedTopics: string[] }[] = [];
+    for (const [contactName, interests] of contactInterestMap) {
+      const matched = interests.filter((interest) => text.includes(interest));
+      if (matched.length > 0) {
+        matchedInterests.push({ contact: contactName, matchedTopics: matched });
+      }
+    }
+
     return {
       signalIndex: idx,
       matchedPeerOrgs: matchedPeers,
       matchedImpressContacts: matchedContacts,
-      hasPeerRelevance: matchedPeers.length > 0 || matchedContacts.length > 0,
+      matchedImpressInterests: matchedInterests,
+      hasPeerRelevance:
+        matchedPeers.length > 0 ||
+        matchedContacts.length > 0 ||
+        matchedInterests.length > 0,
     };
   });
 
   return {
     trackedPeerOrgs: peers.map((p) => p.name),
-    trackedContacts: contacts.map((c) => ({ name: c.name, title: c.title, company: c.company })),
+    trackedContacts: contacts.map((c) => {
+      const dd = c.deepDiveData as {
+        interests?: string[];
+        focusAreas?: string[];
+        talkingPoints?: string[];
+      } | null;
+      return {
+        name: c.name,
+        title: c.title,
+        company: c.company,
+        deepDiveAvailable: c.researchStatus === "completed" && !!dd,
+        ...(dd
+          ? {
+              interests: dd.interests || [],
+              focusAreas: dd.focusAreas || [],
+              talkingPoints: dd.talkingPoints || [],
+            }
+          : {}),
+      };
+    }),
     signalMatches: results,
   };
 }
@@ -1248,7 +1290,7 @@ function parseSelections(args: Record<string, unknown>): SignalSelection[] | nul
 }
 
 export const DEFAULT_AGENT_CONFIG: AgentScoringConfig = {
-  model: "gpt-4o",
+  model: "gpt-5.2",
   temperature: 0.4,
   maxToolRounds: 10,
   targetSelections: 5,
@@ -1307,7 +1349,6 @@ export async function runScoringAgent(
   const toolsUsedPerRound: AgentToolName[] = [];
 
   for (let round = 0; round < config.maxToolRounds; round++) {
-    console.log(`[scoring-agent] round ${round + 1}/${config.maxToolRounds}, calling ${config.model}...`);
     let response;
     try {
       response = await chat(messages, {
@@ -1319,8 +1360,6 @@ export async function runScoringAgent(
       console.error(`[scoring-agent] LLM call failed in round ${round + 1}:`, err);
       break;
     }
-
-    console.log(`[scoring-agent] round ${round + 1} response: ${response.content.slice(0, 200)}`);
     totalPromptTokens += response.promptTokens;
     totalCompletionTokens += response.completionTokens;
 
@@ -1388,7 +1427,6 @@ export async function runScoringAgent(
   }
 
   // Max rounds exhausted — force a final selection
-  console.log(`[scoring-agent] max rounds exhausted, forcing submit_selections...`);
   const forceResponse = await chat(
     [
       ...messages,
@@ -1400,12 +1438,10 @@ export async function runScoringAgent(
     { model: config.model, temperature: config.temperature, maxTokens: 4096 }
   );
 
-  console.log(`[scoring-agent] force response: ${forceResponse.content.slice(0, 300)}`);
   totalPromptTokens += forceResponse.promptTokens;
   totalCompletionTokens += forceResponse.completionTokens;
 
   const finalCall = parseToolCall(forceResponse.content);
-  console.log(`[scoring-agent] final parsed tool: ${finalCall?.tool ?? 'null'}`);
   if (finalCall?.tool === "submit_selections") {
     const selections = parseSelections(finalCall.args);
     if (selections && selections.length > 0) {

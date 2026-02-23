@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { impressContacts } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 import { enrichLinkedinProfile } from "@/lib/enrichment";
+import { runImpressDeepDive } from "@/lib/impress-deep-dive";
 
 export async function GET() {
   const session = await auth();
@@ -21,7 +22,7 @@ export async function GET() {
       )
     );
 
-  return NextResponse.json(contacts);
+  return NextResponse.json({ contacts });
 }
 
 export async function POST(request: Request) {
@@ -51,10 +52,15 @@ export async function POST(request: Request) {
         company: enriched.company,
         photoUrl: enriched.photoUrl,
         source: "settings",
+        researchStatus: "pending",
       })
       .returning();
 
-    return NextResponse.json(contact);
+    runImpressDeepDive(contact.id, session.user.id).catch((err) =>
+      console.error("Background deep dive failed:", err)
+    );
+
+    return NextResponse.json({ contact });
   } catch (error) {
     console.error("Failed to add impress contact:", error);
     return NextResponse.json(

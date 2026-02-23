@@ -35,10 +35,21 @@ export interface EnrichedCompany {
   tags?: string[];
 }
 
+export type PeerEntityType =
+  | "company"
+  | "publication"
+  | "analyst"
+  | "conference"
+  | "regulatory-body"
+  | "research-group"
+  | "influencer"
+  | "community";
+
 export interface PeerOrg {
   name: string;
   domain: string;
   description: string;
+  entityType?: PeerEntityType;
 }
 
 function normalizeLinkedinUrl(url: string): string {
@@ -170,30 +181,49 @@ export async function derivePeerOrganizations(
   userTitle: string | undefined,
   companySize: string | undefined
 ): Promise<PeerOrg[]> {
-  const prompt = `Given a professional who works at "${userCompany}" in the ${userIndustry || "technology"} industry as a ${userTitle || "professional"} (company size: ${companySize || "unknown"}), suggest 5-7 peer organizations they should monitor.
+  const role = userTitle || "professional";
+  const industry = userIndustry || "technology";
+  const size = companySize || "unknown";
 
-Peer organizations are companies that:
-- Compete in the same market or adjacent markets
-- Are similar in size or aspiration
-- Would be relevant to track for competitive intelligence
+  const prompt = `A ${role} at "${userCompany}" in the ${industry} industry (company size: ${size}) needs to build an intelligence radar. Suggest 12-15 entities across ALL of these categories:
+
+1. **Companies** (4-5): Direct competitors and adjacent-market players worth monitoring.
+2. **Publications** (2-3): Trade publications, industry newsletters, or blogs that cover this space. Include the website domain.
+3. **Analysts/Influencers** (2-3): Individual thought leaders, analysts, or commentators this person should follow. Use their personal site or primary platform domain.
+4. **Conferences** (1-2): Key industry events or conferences relevant to this role.
+5. **Regulatory/Research** (1-2): Regulatory bodies, standards organizations, or research groups whose output matters.
+6. **Communities** (1): Industry forums, Slack groups, subreddits, or professional communities.
 
 Return ONLY a JSON array, no markdown, no explanation. Each element:
-{"name": "Company Name", "domain": "company.com", "description": "One line description"}`;
+{"name": "Entity Name", "domain": "example.com", "description": "One line on why they matter", "entityType": "company|publication|analyst|conference|regulatory-body|research-group|influencer|community"}`;
 
   const response = await chat(
     [
-      { role: "system", content: "You are a competitive intelligence analyst. Return only valid JSON arrays." },
+      {
+        role: "system",
+        content: "You are a competitive intelligence analyst. Return only valid JSON arrays. Every entry must have a name, domain, description, and entityType.",
+      },
       { role: "user", content: prompt },
     ],
-    { model: "gpt-4o-mini", temperature: 0.3, maxTokens: 1024 }
+    { model: "gpt-4o-mini", temperature: 0.3, maxTokens: 2048 }
   );
 
   try {
     const cleaned = response.content.replace(/```json?\s*/g, "").replace(/```/g, "").trim();
     const parsed = JSON.parse(cleaned) as PeerOrg[];
-    return parsed.filter((p) => p.name && p.domain);
+    const validTypes = new Set<string>([
+      "company", "publication", "analyst", "conference",
+      "regulatory-body", "research-group", "influencer", "community",
+    ]);
+    return parsed
+      .filter((p) => p.name)
+      .map((p) => ({
+        ...p,
+        domain: p.domain || "",
+        entityType: validTypes.has(p.entityType || "") ? p.entityType : "company",
+      }));
   } catch {
-    console.error("Failed to parse peer org LLM response:", response.content);
+    console.error("Failed to parse peer entity LLM response:", response.content);
     return [];
   }
 }

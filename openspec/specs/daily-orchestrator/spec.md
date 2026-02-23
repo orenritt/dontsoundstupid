@@ -20,6 +20,12 @@ The system MUST execute a daily pipeline for each active user that processes sig
 - **THEN** the system MUST run ingestion once (shared signal pool) and then score/filter/compose per-user
 - **AND** MUST NOT re-ingest signals that were already ingested in the current cycle
 
+#### Scenario: News ingestion layer participation
+
+- **WHEN** the ingestion stage of the pipeline executes
+- **THEN** the system MUST include the "news" layer (GDELT-backed news ingestion) alongside syndication, research, events, narrative, and personal-graph layers in the shared ingestion cycle
+- **AND** MUST track the news layer's signal count and status in the ingestion cycle state
+
 ### Requirement: Pipeline Run Tracking
 
 The system MUST maintain a complete audit trail of each pipeline run.
@@ -57,7 +63,7 @@ The system MUST handle failures gracefully at each pipeline stage.
 
 #### Scenario: Stage failure with fallback
 
-- **WHEN** an individual ingestion layer fails
+- **WHEN** an individual ingestion layer fails (including the news layer)
 - **THEN** the system MUST continue with available signals from other layers
 - **AND** MUST record the failure for monitoring
 

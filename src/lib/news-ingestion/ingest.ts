@@ -1,11 +1,10 @@
-import { createHash } from "crypto";
 import { db } from "../db";
-import { newsQueries, newsPollState } from "../schema";
-import { eq, and, lte } from "drizzle-orm";
-import { GdeltDocClient, type GdeltArticle } from "./gdelt-doc-client";
-import { GdeltGkgClient, type GkgEntityMention } from "./gdelt-gkg-client";
-import { type NewsIngestionConfig, loadNewsIngestionConfig } from "./config";
+import { newsQueries, newsPollState, signals, signalProvenance } from "../schema";
+import { eq, lte } from "drizzle-orm";
+import { NewsApiAiClient, type NewsApiArticle } from "./newsapi-client";
+import { loadNewsIngestionConfig } from "./config";
 import type { NewsQueryDerivedFrom } from "../../models/news-ingestion";
+import type { TriggerReason } from "../../models/signal";
 
 interface IngestedSignal {
   layer: "news";
@@ -32,7 +31,7 @@ interface IngestionResult {
   errorsEncounted: number;
 }
 
-function derivedFromToTriggerReason(derivedFrom: NewsQueryDerivedFrom): string {
+function derivedFromToTriggerReason(derivedFrom: NewsQueryDerivedFrom): TriggerReason {
   switch (derivedFrom) {
     case "impress-list":
       return "impress-list";
@@ -42,57 +41,37 @@ function derivedFromToTriggerReason(derivedFrom: NewsQueryDerivedFrom): string {
       return "intelligence-goal";
     case "industry":
       return "industry-scan";
+    case "ai-refresh":
+      return "ai-discovery";
   }
 }
 
-function articleContentHash(article: GdeltArticle): string {
-  return createHash("sha256")
-    .update(`${article.url}:${article.title}`)
-    .digest("hex");
+function truncateBody(body: string, maxLen = 500): string {
+  if (body.length <= maxLen) return body;
+  return body.slice(0, maxLen).trimEnd() + "...";
 }
 
-function articleToSignal(article: GdeltArticle): IngestedSignal {
+function articleToSignal(article: NewsApiArticle): IngestedSignal {
+  const sourceDomain = article.source.uri || "";
+  const concepts = article.concepts
+    .filter((c) => c.label.eng)
+    .slice(0, 5)
+    .map((c) => c.label.eng);
+
   return {
     layer: "news",
     sourceUrl: article.url,
     title: article.title,
-    content: article.title,
-    summary: article.title,
+    content: truncateBody(article.body),
+    summary: truncateBody(article.body, 300),
     metadata: {
-      gdelt_doc_id: article.gdeltDocId,
-      source_domain: article.domain,
-      source_country: article.sourcecountry,
-      language: article.language,
-      tone_positive: String(article.tonePositive),
-      tone_negative: String(article.toneNegative),
-      tone_polarity: String(article.tonePolarity),
-      tone_activity: String(article.toneActivity),
-      tone_self_reference: String(article.toneSelfReference),
+      source_domain: sourceDomain,
+      language: article.lang,
+      sentiment: String(article.sentiment ?? 0),
+      ...(concepts.length > 0 ? { concepts: concepts.join(", ") } : {}),
     },
-    publishedAt: article.seendate
-      ? new Date(article.seendate).toISOString()
-      : new Date().toISOString(),
-  };
-}
-
-function gkgMentionToSignal(mention: GkgEntityMention): IngestedSignal {
-  return {
-    layer: "news",
-    sourceUrl: mention.url,
-    title: mention.title,
-    content: mention.title,
-    summary: mention.title,
-    metadata: {
-      source_domain: mention.sourceDomain,
-      source_country: mention.sourceCountry,
-      language: mention.language,
-      tone_polarity: String(mention.tone),
-      gkg_source: "true",
-      gkg_entity_name: mention.entityName,
-      gkg_entity_type: mention.entityType,
-    },
-    publishedAt: mention.seendate
-      ? new Date(mention.seendate).toISOString()
+    publishedAt: article.dateTimePub
+      ? new Date(article.dateTimePub).toISOString()
       : new Date().toISOString(),
   };
 }
@@ -153,8 +132,10 @@ async function updatePollStateError(queryId: string, errorMessage: string): Prom
 
 export async function pollNewsQueries(cycleId: string): Promise<IngestionResult> {
   const config = loadNewsIngestionConfig();
-  const docClient = new GdeltDocClient(config);
-  const gkgClient = new GdeltGkgClient();
+  const client = new NewsApiAiClient({
+    maxResults: config.maxArticlesPerQuery,
+    lookbackHours: config.lookbackHours,
+  });
   const now = new Date();
 
   const activeQueries = await db
@@ -185,17 +166,11 @@ export async function pollNewsQueries(cycleId: string): Promise<IngestionResult>
     await ensurePollState(query.id);
 
     try {
-      if (docClient.isRateLimited()) break;
-
-      const geoFilters = (query.geographicFilters as string[]) ?? [];
-      const result = await docClient.searchArticles(
-        query.queryText,
-        geoFilters.length > 0 ? geoFilters : undefined
-      );
+      const result = await client.searchArticles(query.queryText);
 
       let newCount = 0;
       for (const article of result.articles) {
-        if (seenUrls.has(article.url)) continue;
+        if (!article.url || seenUrls.has(article.url)) continue;
         seenUrls.add(article.url);
 
         allSignals.push(articleToSignal(article));
@@ -217,27 +192,39 @@ export async function pollNewsQueries(cycleId: string): Promise<IngestionResult>
     }
   }
 
-  // GKG supplementary lookup
-  if (config.gkgEnabled) {
-    const orgQueries = capped.filter((q) => q.derivedFrom === "impress-list" || q.derivedFrom === "peer-org");
-    for (const query of orgQueries.slice(0, 10)) {
-      try {
-        const mentions = await gkgClient.lookupOrganization(query.profileReference);
-        for (const mention of mentions) {
-          if (seenUrls.has(mention.url)) continue;
-          seenUrls.add(mention.url);
+  // Persist signals and provenance to database
+  for (const signal of allSignals) {
+    try {
+      const [inserted] = await db
+        .insert(signals)
+        .values({
+          layer: "news",
+          sourceUrl: signal.sourceUrl,
+          title: signal.title,
+          content: signal.content,
+          summary: signal.summary,
+          metadata: signal.metadata,
+          publishedAt: new Date(signal.publishedAt),
+        })
+        .onConflictDoNothing()
+        .returning({ id: signals.id });
 
-          allSignals.push(gkgMentionToSignal(mention));
-          allProvenance.push({
-            signalSourceUrl: mention.url,
-            userId: query.userId,
-            triggerReason: derivedFromToTriggerReason(query.derivedFrom as NewsQueryDerivedFrom),
-            profileReference: query.profileReference,
-          });
-        }
-      } catch {
-        // GKG lookups are supplementary — don't fail the cycle
+      if (!inserted) continue;
+
+      const matching = allProvenance.filter((p) => p.signalSourceUrl === signal.sourceUrl);
+      for (const prov of matching) {
+        await db
+          .insert(signalProvenance)
+          .values({
+            signalId: inserted.id,
+            userId: prov.userId,
+            triggerReason: prov.triggerReason as TriggerReason,
+            profileReference: prov.profileReference,
+          })
+          .onConflictDoNothing();
       }
+    } catch (err) {
+      console.error("Failed to persist news signal:", err);
     }
   }
 

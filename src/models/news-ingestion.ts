@@ -4,13 +4,15 @@ export type NewsQueryDerivedFrom =
   | "impress-list"
   | "peer-org"
   | "intelligence-goal"
-  | "industry";
+  | "industry"
+  | "ai-refresh";
 
 export const newsQueryDerivedFromSchema = z.enum([
   "impress-list",
   "peer-org",
   "intelligence-goal",
   "industry",
+  "ai-refresh",
 ]);
 
 export const newsQuerySchema = z.object({
@@ -35,16 +37,10 @@ export const newsPollStateSchema = z.object({
 });
 
 export const newsArticleMetadataSchema = z.object({
-  gdeltDocId: z.string(),
   sourceDomain: z.string(),
-  sourceCountry: z.string(),
   language: z.string(),
-  tonePositive: z.number(),
-  toneNegative: z.number(),
-  tonePolarity: z.number(),
-  toneActivity: z.number(),
-  toneSelfReference: z.number(),
-  gkgSource: z.boolean(),
+  sentiment: z.number(),
+  concepts: z.string().optional(),
 });
 
 export interface NewsQuery {
@@ -69,16 +65,10 @@ export interface NewsPollState {
 }
 
 export interface NewsArticleMetadata {
-  gdeltDocId: string;
   sourceDomain: string;
-  sourceCountry: string;
   language: string;
-  tonePositive: number;
-  toneNegative: number;
-  tonePolarity: number;
-  toneActivity: number;
-  toneSelfReference: number;
-  gkgSource: boolean;
+  sentiment: number;
+  concepts?: string;
 }
 
 export type ValidatedNewsQuery = z.infer<typeof newsQuerySchema>;

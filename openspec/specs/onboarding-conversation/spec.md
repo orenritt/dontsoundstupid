@@ -18,15 +18,27 @@ The system MUST provide a conversational onboarding flow that collects minimal s
 - **AND** MUST trigger person enrichment and company enrichment from that URL
 - **AND** on successful enrichment, MUST display the user's photo and name within the orb before auto-advancing
 
-#### Scenario: Step 2 — Conversational context extraction (free-text/voice)
+#### Scenario: Step 2 — Open-ended guided conversation (free-text/voice)
 
 - **WHEN** the user's LinkedIn is submitted
-- **THEN** the system MUST present a single open-ended prompt asking the user to describe what they really do, what they're working on, what they're expert in, what they wish they knew more about, and what they're trying to accomplish
-- **AND** MUST support both free-text input and voice input via Web Speech API
-- **AND** MUST recommend voice input ("people tend to share more")
+- **THEN** the system MUST present guided prompts one at a time from a pool of questions:
+  1. "Walk me through a typical day."
+  2. "Tell me about a project you're deep in right now."
+  3. "What do you wish you understood better?"
+  4. "What tools or concepts do you wish you had a better grasp of?"
+  5. "What's one thing that caught you off guard recently?"
+- **AND** the first prompt MUST be required (minimum 10 characters)
+- **AND** after each answer, the system MUST present a choice: "Ask me another" or "That's enough — let's go"
+- **AND** "Ask me another" MUST advance to the next prompt from the pool
+- **AND** "That's enough" MUST submit all collected Q&A pairs and proceed
+- **AND** if all prompts are exhausted, the system MUST auto-transition to a summary screen and submit
+- **AND** each prompt MUST have descriptive subtext and placeholder text to anchor the user
+- **AND** MUST show progress ticks for completed answers
+- **AND** MUST support both free-text input and voice input via Web Speech API for each prompt
+- **AND** MUST recommend voice input on the first prompt ("people share more")
 - **AND** MUST animate the orb to pulse during voice recording to indicate active listening
 - **AND** MUST stream live transcript during voice recording
-- **AND** MUST allow the user to review and edit the transcript before proceeding
+- **AND** on submission, MUST concatenate all Q&A pairs into a single transcript for LLM parsing
 
 #### Scenario: Step 3 — User provides their impress list
 
@@ -63,10 +75,18 @@ The system MUST provide a conversational onboarding flow that collects minimal s
 - **THEN** the system MUST offer optional calendar integration (Google Calendar / Outlook) via OAuth
 - **AND** MUST allow the user to skip without penalty
 
-#### Scenario: Step 8 — Profile complete
+#### Scenario: Step 8 — Newsletter suggestions
 
-- **WHEN** the user has completed all steps
-- **THEN** a full user profile (identity + context + peers + expertise calibration) MUST be persisted
+- **WHEN** calendar connect is completed or skipped
+- **THEN** the system MUST present LLM-ranked newsletter suggestions from the newsletter registry, personalized to the user's full profile
+- **AND** MUST allow the user to add newsletters to their content universe
+- **AND** MUST provide a "Don't see yours?" input accepting URLs or newsletter names
+- **AND** MUST allow the user to skip without penalty
+
+#### Scenario: Step 9 — Profile complete
+
+- **WHEN** the user has completed all steps (including or skipping the newsletter step)
+- **THEN** a full user profile (identity + context + peers + expertise calibration + newsletter subscriptions) MUST be persisted
 - **AND** the profile MUST be ready for the briefing engine
 
 ### Requirement: Conversation Transcript Processing

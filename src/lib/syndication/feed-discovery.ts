@@ -25,6 +25,45 @@ export interface DiscoveredFeed {
   feedType: "rss" | "atom";
 }
 
+/**
+ * Try platform-specific feed URL patterns for known newsletter platforms.
+ * Returns the first valid feed found, or null.
+ */
+export async function discoverNewsletterFeed(
+  url: string
+): Promise<DiscoveredFeed | null> {
+  const normalizedUrl = url.replace(/\/$/, "");
+
+  // Substack: {name}.substack.com or custom domain with /feed
+  if (normalizedUrl.includes("substack.com")) {
+    const base = normalizedUrl.replace(/\/+$/, "").split("?")[0]!;
+    const feedUrl = base.endsWith("/feed") ? base : `${base}/feed`;
+    const siteUrl = feedUrl.replace(/\/feed$/, "");
+    const feed = await tryParseFeed(feedUrl, siteUrl);
+    if (feed) return feed;
+  }
+
+  // Buttondown: buttondown.com/{name} or buttondown.email/{name}
+  if (
+    normalizedUrl.includes("buttondown.com") ||
+    normalizedUrl.includes("buttondown.email")
+  ) {
+    const match = normalizedUrl.match(
+      /buttondown\.(?:com|email)\/([^/?#]+)/
+    );
+    if (match?.[1]) {
+      const feedUrl = `https://buttondown.com/${match[1]}/rss`;
+      const siteUrl = `https://buttondown.com/${match[1]}`;
+      const feed = await tryParseFeed(feedUrl, siteUrl);
+      if (feed) return feed;
+    }
+  }
+
+  // Fall back to generic discovery
+  const feeds = await discoverFeeds(normalizedUrl);
+  return feeds[0] ?? null;
+}
+
 export async function discoverFeeds(domain: string): Promise<DiscoveredFeed[]> {
   const baseUrl = domain.startsWith("http") ? domain : `https://${domain}`;
   const normalizedBase = baseUrl.replace(/\/$/, "");

@@ -10,6 +10,7 @@ import { RapidFireStep } from "./components/RapidFireStep";
 import { PeerReviewStep } from "./components/PeerReviewStep";
 import { DeliveryStep } from "./components/DeliveryStep";
 import { CalendarStep } from "./components/CalendarStep";
+import { NewsletterStep } from "./components/NewsletterStep";
 import { CompletionStep } from "./components/CompletionStep";
 
 type Step =
@@ -20,6 +21,7 @@ type Step =
   | "peer-review"
   | "delivery"
   | "calendar"
+  | "newsletters"
   | "complete";
 
 const STEP_ORDER: Step[] = [
@@ -30,6 +32,7 @@ const STEP_ORDER: Step[] = [
   "peer-review",
   "delivery",
   "calendar",
+  "newsletters",
   "complete",
 ];
 
@@ -142,11 +145,11 @@ export default function OnboardingPage() {
               className="h-full bg-black transition-all duration-500"
               style={{
                 width: `${
-                  (["rapid-fire", "peer-review", "delivery", "calendar"].indexOf(
+                  (["rapid-fire", "peer-review", "delivery", "calendar", "newsletters"].indexOf(
                     step
                   ) +
                     4) *
-                  (100 / 7)
+                  (100 / 8)
                 }%`,
               }}
             />
@@ -304,6 +307,21 @@ export default function OnboardingPage() {
             transition={{ duration: 0.4 }}
           >
             <CalendarStep
+              onComplete={() => goNext("newsletters")}
+              onBack={goBack}
+            />
+          </motion.div>
+        )}
+
+        {step === "newsletters" && (
+          <motion.div
+            key="newsletters"
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.4 }}
+          >
+            <NewsletterStep
               onComplete={() => goNext("complete")}
               onBack={goBack}
             />

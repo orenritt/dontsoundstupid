@@ -8,6 +8,7 @@ import {
 } from "./schema";
 import { eq } from "drizzle-orm";
 import { chat, embed } from "./llm";
+import { toStringArray } from "./safe-parse";
 
 export async function seedKnowledgeGraph(userId: string) {
   const [user] = await db
@@ -46,10 +47,10 @@ export async function seedKnowledgeGraph(userId: string) {
       entities.push({ name: contact.name, type: "person", source: "profile-derived", confidence: 1.0 });
     }
   }
-  for (const topic of (profile.parsedTopics as string[]) || []) {
+  for (const topic of toStringArray(profile.parsedTopics)) {
     entities.push({ name: topic, type: "concept", source: "profile-derived", confidence: 1.0 });
   }
-  for (const area of (profile.parsedExpertAreas as string[]) || []) {
+  for (const area of toStringArray(profile.parsedExpertAreas)) {
     entities.push({ name: area, type: "concept", source: "profile-derived", confidence: 1.0 });
   }
 
@@ -72,7 +73,7 @@ export async function seedKnowledgeGraph(userId: string) {
       },
       {
         role: "user",
-        content: `Role: ${user.title || "Professional"} at ${user.company || "their company"}. Topics they work on: ${((profile.parsedTopics as string[]) || []).join(", ")}`,
+        content: `Role: ${user.title || "Professional"} at ${user.company || "their company"}. Topics they work on: ${toStringArray(profile.parsedTopics).join(", ")}`,
       },
     ], { model: "gpt-4o-mini", temperature: 0.5 });
 

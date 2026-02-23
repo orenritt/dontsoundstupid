@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { userProfiles, rapidFireTopics } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { chat } from "@/lib/llm";
+import { toStringArray } from "@/lib/safe-parse";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -57,17 +58,20 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
   ], { model: "gpt-4o-mini", temperature: 0.3 });
 
   try {
-    const parsed = JSON.parse(response.content);
+    let raw = response.content.trim();
+    const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (fenceMatch?.[1]) raw = fenceMatch[1].trim();
+    const parsed = JSON.parse(raw);
 
     await db
       .update(userProfiles)
       .set({
-        parsedInitiatives: parsed.initiatives || [],
-        parsedConcerns: parsed.concerns || [],
-        parsedTopics: parsed.topics || [],
-        parsedKnowledgeGaps: parsed.knowledgeGaps || [],
-        parsedExpertAreas: parsed.expertAreas || [],
-        parsedWeakAreas: parsed.weakAreas || [],
+        parsedInitiatives: toStringArray(parsed.initiatives),
+        parsedConcerns: toStringArray(parsed.concerns),
+        parsedTopics: toStringArray(parsed.topics),
+        parsedKnowledgeGaps: toStringArray(parsed.knowledgeGaps),
+        parsedExpertAreas: toStringArray(parsed.expertAreas),
+        parsedWeakAreas: toStringArray(parsed.weakAreas),
         updatedAt: new Date(),
       })
       .where(eq(userProfiles.userId, userId));

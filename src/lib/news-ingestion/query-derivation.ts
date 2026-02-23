@@ -9,6 +9,7 @@ import {
 } from "../schema";
 import { eq, and } from "drizzle-orm";
 import type { NewsQueryDerivedFrom } from "../../models/news-ingestion";
+import { toStringArray } from "../safe-parse";
 
 interface DerivedQuery {
   queryText: string;
@@ -65,12 +66,42 @@ async function deriveFromPeerOrgs(userId: string): Promise<DerivedQuery[]> {
     .from(peerOrganizations)
     .where(and(eq(peerOrganizations.userId, userId), eq(peerOrganizations.confirmed, true)));
 
-  return peers.map((peer) => ({
-    queryText: `"${peer.name}"`,
-    derivedFrom: "peer-org" as const,
-    profileReference: peer.name,
-    geographicFilters: [],
-  }));
+  const queries: DerivedQuery[] = [];
+  const currentYear = new Date().getFullYear();
+
+  for (const peer of peers) {
+    const entityType = peer.entityType || "company";
+
+    switch (entityType) {
+      case "conference":
+        queries.push({
+          queryText: `"${peer.name}" ${currentYear}`,
+          derivedFrom: "peer-org",
+          profileReference: peer.name,
+          geographicFilters: [],
+        });
+        break;
+      case "publication":
+      case "community":
+        queries.push({
+          queryText: peer.name,
+          derivedFrom: "peer-org",
+          profileReference: peer.name,
+          geographicFilters: [],
+        });
+        break;
+      default:
+        queries.push({
+          queryText: `"${peer.name}"`,
+          derivedFrom: "peer-org",
+          profileReference: peer.name,
+          geographicFilters: [],
+        });
+        break;
+    }
+  }
+
+  return queries;
 }
 
 async function deriveFromIntelligenceGoals(userId: string): Promise<DerivedQuery[]> {
@@ -104,7 +135,7 @@ async function deriveFromTopics(userId: string): Promise<DerivedQuery[]> {
 
   if (!profile) return [];
 
-  const topics = (profile.parsedTopics as string[]) || [];
+  const topics = toStringArray(profile.parsedTopics);
   return topics.map((topic) => ({
     queryText: topic,
     derivedFrom: "industry" as const,

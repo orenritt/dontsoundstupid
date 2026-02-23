@@ -46,6 +46,7 @@ export async function GET() {
         name: org.name,
         domain: org.domain,
         description: org.description,
+        entityType: org.entityType || "company",
       })
       .returning();
     inserted.push(row);
@@ -80,6 +81,7 @@ export async function POST(request: Request) {
         userId: session.user.id,
         name: org.name,
         domain: org.domain || null,
+        entityType: org.entityType || "company",
         confirmed: true,
         source: "user-added",
       });

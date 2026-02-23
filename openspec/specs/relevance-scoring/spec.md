@@ -28,8 +28,15 @@ The system MUST use an LLM agent to select top signals from the candidate pool.
 #### Scenario: Agent selection criteria
 
 - **WHEN** the agent evaluates candidates
-- **THEN** the agent MUST consider (in priority order): meeting prep (signals relevant to today's meetings are highest priority), novelty to the user, relevance to their role and concerns (including expertise gaps), momentum (whether the topic is gaining or losing public attention), coherence across selections (compound narratives, deduplication), topic diversity, and alignment with past feedback
+- **THEN** the agent MUST consider (in rough priority order): novelty to the user, relevance to their role and concerns (including expertise gaps), momentum (whether the topic is gaining or losing public attention), actionability (especially meeting-relevance), coherence across selections (compound narratives, deduplication), topic diversity, and alignment with past feedback
 - **AND** the agent MUST NOT select signals the user already knows about unless the development is genuinely new
+- **AND** for signals with layer "news", the agent SHOULD consider GDELT tone metadata (tone_polarity, tone_positive, tone_negative) when reasoning about sentiment shifts or momentum
+
+#### Scenario: News layer signal handling
+
+- **WHEN** the candidate pool includes signals with layer "news"
+- **THEN** the agent MUST treat them as first-class candidates alongside signals from other layers (syndication, research, events, narrative, personal-graph, ai-research)
+- **AND** the agent SHOULD note when a news signal corroborates or contradicts signals from other layers, using this as evidence for or against selection
 
 ### Requirement: Agent Tools
 
@@ -52,6 +59,9 @@ The system MUST provide the scoring agent with tools for deeper analysis.
 - **WHEN** the agent calls `compare_with_peers`
 - **THEN** the system MUST check candidate signals against the user's tracked peer organizations and impress-list contacts
 - **AND** MUST return which signals mention tracked entities
+- **AND** for impress contacts with completed deep-dive research, MUST return the contact's interests, focus areas, and talking points alongside basic identity data
+- **AND** MUST check signal text against impress contact interests and focus areas in addition to contact names
+- **AND** MUST indicate which specific interests or focus areas matched for each signal
 
 #### Scenario: Freshness assessment
 

@@ -10,7 +10,27 @@ import {
   pgEnum,
   uniqueIndex,
   index,
+  customType,
 } from "drizzle-orm/pg-core";
+
+const vector = customType<{ data: number[]; driverParam: string }>({
+  dataType() {
+    return "vector(1536)";
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: unknown): number[] {
+    if (typeof value === "string") {
+      return value
+        .replace(/^\[/, "")
+        .replace(/]$/, "")
+        .split(",")
+        .map(Number);
+    }
+    return value as number[];
+  },
+});
 
 export const onboardingStatusEnum = pgEnum("onboarding_status", [
   "not_started",
@@ -57,6 +77,7 @@ export const userProfiles = pgTable("user_profiles", {
   deliveryChannel: text("delivery_channel"),
   deliveryTime: text("delivery_time"),
   deliveryTimezone: text("delivery_timezone"),
+  lastDiscoveryAt: timestamp("last_discovery_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -64,6 +85,15 @@ export const userProfiles = pgTable("user_profiles", {
     .notNull()
     .defaultNow(),
 });
+
+export interface DeepDiveData {
+  interests: string[];
+  focusAreas: string[];
+  recentActivity: string[];
+  talkingPoints: string[];
+  companyContext: string;
+  summary: string;
+}
 
 export const impressContacts = pgTable(
   "impress_contacts",
@@ -79,12 +109,25 @@ export const impressContacts = pgTable(
     photoUrl: text("photo_url"),
     source: text("source").notNull().default("onboarding"),
     active: boolean("active").notNull().default(true),
+    researchStatus: text("research_status").notNull().default("none"),
+    deepDiveData: jsonb("deep_dive_data").$type<DeepDiveData>(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (table) => [index("idx_impress_user").on(table.userId)]
 );
+
+export const peerEntityTypeEnum = pgEnum("peer_entity_type", [
+  "company",
+  "publication",
+  "analyst",
+  "conference",
+  "regulatory-body",
+  "research-group",
+  "influencer",
+  "community",
+]);
 
 export const peerOrganizations = pgTable(
   "peer_organizations",
@@ -96,6 +139,7 @@ export const peerOrganizations = pgTable(
     name: text("name").notNull(),
     domain: text("domain"),
     description: text("description"),
+    entityType: peerEntityTypeEnum("entity_type").notNull().default("company"),
     confirmed: boolean("confirmed"),
     comment: text("comment"),
     source: text("source").notNull().default("system-suggested"),
@@ -123,6 +167,7 @@ export const knowledgeSourceEnum = pgEnum("knowledge_source", [
   "deep-dive",
   "feedback-implicit",
   "rapid-fire",
+  "impress-deep-dive",
 ]);
 
 export const knowledgeEntities = pgTable(
@@ -158,6 +203,39 @@ export const knowledgeEntities = pgTable(
   ]
 );
 
+export const knowledgeRelationshipEnum = pgEnum("knowledge_relationship", [
+  "works-at",
+  "competes-with",
+  "uses",
+  "researches",
+  "part-of",
+  "related-to",
+  "cares-about",
+]);
+
+export const knowledgeEdges = pgTable(
+  "knowledge_edges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceEntityId: uuid("source_entity_id")
+      .notNull()
+      .references(() => knowledgeEntities.id),
+    targetEntityId: uuid("target_entity_id")
+      .notNull()
+      .references(() => knowledgeEntities.id),
+    relationship: knowledgeRelationshipEnum("relationship").notNull(),
+  },
+  (table) => [
+    uniqueIndex("unique_knowledge_edge").on(
+      table.sourceEntityId,
+      table.targetEntityId,
+      table.relationship
+    ),
+    index("idx_knowledge_edges_source").on(table.sourceEntityId),
+    index("idx_knowledge_edges_target").on(table.targetEntityId),
+  ]
+);
+
 export const briefingReasonEnum = pgEnum("briefing_reason", [
   "people-are-talking",
   "meeting-prep",
@@ -189,6 +267,7 @@ export const briefings = pgTable(
           content: string;
           sourceUrl: string | null;
           sourceLabel: string | null;
+          attribution: string | null;
         }[]
       >()
       .notNull(),
@@ -336,13 +415,14 @@ export const meetingIntelligence = pgTable(
   (table) => [index("idx_meeting_intel_meeting").on(table.meetingId)]
 );
 
-// News ingestion (GDELT)
+// News ingestion (NewsAPI.ai)
 
 export const newsQueryDerivedFromEnum = pgEnum("news_query_derived_from", [
   "impress-list",
   "peer-org",
   "intelligence-goal",
   "industry",
+  "ai-refresh",
 ]);
 
 export const newsQueries = pgTable(
@@ -431,6 +511,77 @@ export const userFeedSubscriptions = pgTable(
   ]
 );
 
+// Newsletter ingestion
+
+export const newsletterIngestionMethodEnum = pgEnum("newsletter_ingestion_method", [
+  "rss",
+  "system_email",
+  "pending",
+]);
+
+export const newsletterStatusEnum = pgEnum("newsletter_status", [
+  "active",
+  "pending_admin_setup",
+  "inactive",
+]);
+
+export const newsletterRegistry = pgTable(
+  "newsletter_registry",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    websiteUrl: text("website_url"),
+    industryTags: jsonb("industry_tags").$type<string[]>().notNull().default([]),
+    ingestionMethod: newsletterIngestionMethodEnum("ingestion_method")
+      .notNull()
+      .default("pending"),
+    feedUrl: text("feed_url"),
+    syndicationFeedId: uuid("syndication_feed_id").references(
+      () => syndicationFeeds.id
+    ),
+    systemEmailAddress: text("system_email_address"),
+    status: newsletterStatusEnum("status")
+      .notNull()
+      .default("pending_admin_setup"),
+    logoUrl: text("logo_url"),
+    lastEmailReceivedAt: timestamp("last_email_received_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_newsletter_status").on(table.status),
+    index("idx_newsletter_ingestion").on(table.ingestionMethod),
+  ]
+);
+
+export const userNewsletterSubscriptions = pgTable(
+  "user_newsletter_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    newsletterId: uuid("newsletter_id")
+      .notNull()
+      .references(() => newsletterRegistry.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("unique_user_newsletter").on(table.userId, table.newsletterId),
+    index("idx_user_newsletter_user").on(table.userId),
+    index("idx_user_newsletter_newsletter").on(table.newsletterId),
+  ]
+);
+
 export const rapidFireTopics = pgTable(
   "rapid_fire_topics",
   {
@@ -447,4 +598,83 @@ export const rapidFireTopics = pgTable(
       .defaultNow(),
   },
   (table) => [index("idx_rft_user").on(table.userId)]
+);
+
+// --- Signals ---
+
+export const signalLayerEnum = pgEnum("signal_layer", [
+  "syndication",
+  "research",
+  "narrative",
+  "events",
+  "personal-graph",
+  "ai-research",
+  "email-forward",
+  "news",
+  "newsletter",
+]);
+
+export const triggerReasonEnum = pgEnum("trigger_reason", [
+  "followed-org",
+  "peer-org",
+  "impress-list",
+  "intelligence-goal",
+  "industry-scan",
+  "personal-graph",
+  "user-curated",
+  "newsletter-subscription",
+  "ai-discovery",
+]);
+
+export const signals = pgTable(
+  "signals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    layer: signalLayerEnum("layer").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    summary: text("summary").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, string>>().notNull().default({}),
+    embedding: vector("embedding"),
+    embeddingModel: text("embedding_model"),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    ingestedAt: timestamp("ingested_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("unique_source_url").on(table.sourceUrl),
+    index("idx_signals_layer").on(table.layer),
+    index("idx_signals_published_at").on(table.publishedAt),
+    index("idx_signals_ingested_at").on(table.ingestedAt),
+    index("idx_signals_layer_published").on(table.layer, table.publishedAt),
+  ]
+);
+
+export const signalProvenance = pgTable(
+  "signal_provenance",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    signalId: uuid("signal_id")
+      .notNull()
+      .references(() => signals.id),
+    userId: uuid("user_id").notNull(),
+    triggerReason: triggerReasonEnum("trigger_reason").notNull(),
+    profileReference: text("profile_reference").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("unique_provenance").on(
+      table.signalId,
+      table.userId,
+      table.triggerReason,
+      table.profileReference
+    ),
+    index("idx_provenance_signal").on(table.signalId),
+    index("idx_provenance_user").on(table.userId),
+    index("idx_provenance_user_reason").on(table.userId, table.triggerReason),
+  ]
 );

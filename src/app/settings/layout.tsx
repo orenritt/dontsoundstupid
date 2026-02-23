@@ -8,6 +8,7 @@ import { motion } from "framer-motion";
 const NAV_ITEMS = [
   { label: "Profile", href: "/settings" },
   { label: "Impress List", href: "/settings/impress-list" },
+  { label: "Newsletters", href: "/settings/newsletters" },
   { label: "Delivery", href: "/settings/delivery" },
 ];
 

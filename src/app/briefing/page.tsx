@@ -12,6 +12,7 @@ interface BriefingItem {
   content: string;
   sourceUrl: string | null;
   sourceLabel: string | null;
+  attribution: string | null;
 }
 
 interface Briefing {
@@ -86,8 +87,14 @@ export default function BriefingPage() {
   async function triggerPipeline() {
     setGenerating(true);
     setGenerateError(null);
+    // #region agent log
+    console.log('[DEBUG-b7450b] triggerPipeline-start', { currentPageState: pageState });
+    // #endregion
     try {
       const res = await fetch("/api/pipeline/trigger", { method: "POST" });
+      // #region agent log
+      console.log('[DEBUG-b7450b] triggerPipeline-response', { status: res.status, ok: res.ok });
+      // #endregion
       if (!res.ok) {
         const data = await res.json();
         setGenerateError(
@@ -96,7 +103,10 @@ export default function BriefingPage() {
         return;
       }
       await loadPage();
-    } catch {
+    } catch (err) {
+      // #region agent log
+      console.log('[DEBUG-b7450b] triggerPipeline-catch', { error: err instanceof Error ? err.message : String(err) });
+      // #endregion
       setGenerateError("Something went wrong. Please try again.");
     } finally {
       setGenerating(false);

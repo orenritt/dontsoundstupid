@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { impressContacts } from "@/lib/schema";
 import { enrichLinkedinProfile } from "@/lib/enrichment";
+import { runImpressDeepDive } from "@/lib/impress-deep-dive";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -31,9 +32,14 @@ export async function POST(request: Request) {
         company: enriched.company,
         photoUrl: enriched.photoUrl,
         source: "onboarding",
+        researchStatus: "pending",
       })
       .returning();
     contacts.push(contact);
+
+    runImpressDeepDive(contact.id, session.user.id).catch((err) =>
+      console.error("Background deep dive failed:", err)
+    );
   }
 
   return NextResponse.json({ contacts });

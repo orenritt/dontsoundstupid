@@ -1,12 +1,23 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+
+type PeerEntityType =
+  | "company"
+  | "publication"
+  | "analyst"
+  | "conference"
+  | "regulatory-body"
+  | "research-group"
+  | "influencer"
+  | "community";
 
 interface Peer {
   id: string;
   name: string;
   domain: string | null;
   description: string | null;
+  entityType: PeerEntityType;
 }
 
 interface Review {
@@ -18,12 +29,35 @@ interface Review {
 interface AdditionalOrg {
   name: string;
   domain: string;
+  entityType: PeerEntityType;
 }
 
 interface PeerReviewStepProps {
   onComplete: () => void;
   onBack?: () => void;
 }
+
+const ENTITY_TYPE_LABELS: Record<PeerEntityType, string> = {
+  company: "Companies",
+  publication: "Publications",
+  analyst: "Analysts",
+  conference: "Conferences",
+  "regulatory-body": "Regulatory Bodies",
+  "research-group": "Research Groups",
+  influencer: "Influencers",
+  community: "Communities",
+};
+
+const ENTITY_TYPE_ORDER: PeerEntityType[] = [
+  "company",
+  "publication",
+  "analyst",
+  "influencer",
+  "conference",
+  "regulatory-body",
+  "research-group",
+  "community",
+];
 
 export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
   const [peers, setPeers] = useState<Peer[]>([]);
@@ -34,6 +68,7 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
   const [additionalOrgs, setAdditionalOrgs] = useState<AdditionalOrg[]>([]);
   const [newOrgName, setNewOrgName] = useState("");
   const [newOrgDomain, setNewOrgDomain] = useState("");
+  const [newOrgType, setNewOrgType] = useState<PeerEntityType>("company");
   const [expandedComment, setExpandedComment] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -41,10 +76,30 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
     fetch("/api/onboarding/peers")
       .then((res) => res.json())
       .then((data) => {
-        setPeers(data.peers || []);
+        setPeers(
+          (data.peers || []).map((p: Peer & { entity_type?: string }) => ({
+            ...p,
+            entityType: p.entityType || p.entity_type || "company",
+          }))
+        );
         setLoading(false);
       });
   }, []);
+
+  const groupedPeers = useMemo(() => {
+    const groups: Partial<Record<PeerEntityType, Peer[]>> = {};
+    for (const peer of peers) {
+      const type = peer.entityType || "company";
+      if (!groups[type]) groups[type] = [];
+      groups[type]!.push(peer);
+    }
+    return groups;
+  }, [peers]);
+
+  const orderedTypes = useMemo(
+    () => ENTITY_TYPE_ORDER.filter((t) => groupedPeers[t]?.length),
+    [groupedPeers]
+  );
 
   const handleReview = (id: string, confirmed: boolean) => {
     setReviews((prev) => ({
@@ -70,10 +125,11 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
     if (!newOrgName.trim()) return;
     setAdditionalOrgs((prev) => [
       ...prev,
-      { name: newOrgName.trim(), domain: newOrgDomain.trim() },
+      { name: newOrgName.trim(), domain: newOrgDomain.trim(), entityType: newOrgType },
     ]);
     setNewOrgName("");
     setNewOrgDomain("");
+    setNewOrgType("company");
     setShowAddOrg(false);
   };
 
@@ -142,60 +198,70 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
             Back
           </button>
         )}
-        <div className="space-y-4">
-          {peers.map((org) => (
-            <div
-              key={org.id}
-              className="bg-white rounded-xl shadow-sm border border-gray-100 p-5"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-base font-bold text-gray-900">
-                    {org.name}
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-0.5">
-                    {org.description || ""}
-                  </p>
-                  {org.domain && (
-                    <p className="text-xs text-gray-400 mt-1">{org.domain}</p>
-                  )}
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => handleReview(org.id, true)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                      reviews[org.id]?.confirmed === true
-                        ? "bg-green-600 text-white"
-                        : "border border-green-600 text-green-600 hover:bg-green-50"
-                    }`}
+
+        <div className="space-y-6">
+          {orderedTypes.map((type) => (
+            <div key={type}>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+                {ENTITY_TYPE_LABELS[type]}
+              </h2>
+              <div className="space-y-3">
+                {groupedPeers[type]!.map((org) => (
+                  <div
+                    key={org.id}
+                    className="bg-white rounded-xl shadow-sm border border-gray-100 p-5"
                   >
-                    Yes
-                  </button>
-                  <button
-                    onClick={() => handleReview(org.id, false)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium ${
-                      reviews[org.id]?.confirmed === false
-                        ? "bg-red-600 text-white"
-                        : "border border-red-600 text-red-600 hover:bg-red-50"
-                    }`}
-                  >
-                    No
-                  </button>
-                </div>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-base font-bold text-gray-900">
+                          {org.name}
+                        </h3>
+                        <p className="text-sm text-gray-500 mt-0.5">
+                          {org.description || ""}
+                        </p>
+                        {org.domain && (
+                          <p className="text-xs text-gray-400 mt-1">{org.domain}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => handleReview(org.id, true)}
+                          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                            reviews[org.id]?.confirmed === true
+                              ? "bg-green-600 text-white"
+                              : "border border-green-600 text-green-600 hover:bg-green-50"
+                          }`}
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => handleReview(org.id, false)}
+                          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                            reviews[org.id]?.confirmed === false
+                              ? "bg-red-600 text-white"
+                              : "border border-red-600 text-red-600 hover:bg-red-50"
+                          }`}
+                        >
+                          No
+                        </button>
+                      </div>
+                    </div>
+                    {expandedComment === org.id && (
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        <textarea
+                          placeholder="Add a comment (optional)"
+                          value={comments[org.id] || ""}
+                          onChange={(e) =>
+                            handleCommentChange(org.id, e.target.value)
+                          }
+                          className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-300 focus:outline-none"
+                          rows={2}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
-              {expandedComment === org.id && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <textarea
-                    placeholder="Add a comment (optional)"
-                    value={comments[org.id] || ""}
-                    onChange={(e) =>
-                      handleCommentChange(org.id, e.target.value)
-                    }
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-300 focus:outline-none"
-                    rows={2}
-                  />
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -204,13 +270,13 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
           onClick={() => setShowAddOrg(true)}
           className="mt-4 text-sm text-blue-600 hover:text-blue-700 underline"
         >
-          Add an org we missed
+          Add an entity we missed
         </button>
 
         {showAddOrg && (
           <div className="mt-4 p-4 bg-white rounded-xl shadow-sm border border-gray-100 space-y-3">
             <input
-              placeholder="Organization name"
+              placeholder="Name"
               value={newOrgName}
               onChange={(e) => setNewOrgName(e.target.value)}
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
@@ -221,6 +287,17 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
               onChange={(e) => setNewOrgDomain(e.target.value)}
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900"
             />
+            <select
+              value={newOrgType}
+              onChange={(e) => setNewOrgType(e.target.value as PeerEntityType)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900 bg-white"
+            >
+              {ENTITY_TYPE_ORDER.map((t) => (
+                <option key={t} value={t}>
+                  {ENTITY_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
             <div className="flex gap-2">
               <button
                 onClick={addOrg}
@@ -234,6 +311,7 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
                   setShowAddOrg(false);
                   setNewOrgName("");
                   setNewOrgDomain("");
+                  setNewOrgType("company");
                 }}
                 className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700"
               >
@@ -246,11 +324,9 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
         {additionalOrgs.length > 0 && (
           <div className="mt-4 space-y-2">
             {additionalOrgs.map((org, i) => (
-              <div
-                key={i}
-                className="text-sm text-gray-600"
-              >
-                + {org.name} ({org.domain || "—"})
+              <div key={i} className="text-sm text-gray-600">
+                + {org.name} ({ENTITY_TYPE_LABELS[org.entityType]})
+                {org.domain ? ` — ${org.domain}` : ""}
               </div>
             ))}
           </div>

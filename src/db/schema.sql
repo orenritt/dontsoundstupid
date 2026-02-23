@@ -9,7 +9,8 @@ CREATE TYPE signal_layer AS ENUM (
   'personal-graph',
   'ai-research',
   'email-forward',
-  'news'
+  'news',
+  'newsletter'
 );
 
 CREATE TABLE signals (
@@ -59,7 +60,8 @@ CREATE TYPE trigger_reason AS ENUM (
   'intelligence-goal',
   'industry-scan',
   'personal-graph',
-  'user-curated'
+  'user-curated',
+  'newsletter-subscription'
 );
 
 CREATE TABLE signal_provenance (
@@ -399,11 +401,11 @@ CREATE TYPE knowledge_entity_type AS ENUM (
 );
 
 CREATE TYPE knowledge_source AS ENUM (
-  'profile-derived', 'industry-scan', 'briefing-delivered', 'deep-dive', 'feedback-implicit'
+  'profile-derived', 'industry-scan', 'briefing-delivered', 'deep-dive', 'feedback-implicit', 'impress-deep-dive'
 );
 
 CREATE TYPE knowledge_relationship AS ENUM (
-  'works-at', 'competes-with', 'uses', 'researches', 'part-of', 'related-to'
+  'works-at', 'competes-with', 'uses', 'researches', 'part-of', 'related-to', 'cares-about'
 );
 
 CREATE TABLE knowledge_entities (
@@ -506,7 +508,7 @@ CREATE INDEX idx_pipeline_runs_user_type ON pipeline_runs (user_id, run_type);
 CREATE INDEX idx_pipeline_stages_run ON pipeline_stages (run_id);
 CREATE INDEX idx_ingestion_cycles_started ON ingestion_cycles (started_at DESC);
 
--- News ingestion (GDELT)
+-- News ingestion (NewsAPI.ai)
 
 CREATE TYPE news_query_derived_from AS ENUM ('impress-list', 'peer-org', 'intelligence-goal', 'industry');
 
@@ -595,3 +597,40 @@ CREATE TABLE email_forwards (
 CREATE INDEX idx_email_forwards_user ON email_forwards (user_id);
 CREATE INDEX idx_email_forwards_user_received ON email_forwards (user_id, received_at DESC);
 CREATE INDEX idx_email_forwards_signal ON email_forwards (signal_id);
+
+-- Newsletter ingestion
+
+CREATE TYPE newsletter_ingestion_method AS ENUM ('rss', 'system_email', 'pending');
+CREATE TYPE newsletter_status AS ENUM ('active', 'pending_admin_setup', 'inactive');
+
+CREATE TABLE newsletter_registry (
+  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name                  TEXT NOT NULL,
+  description           TEXT NOT NULL DEFAULT '',
+  website_url           TEXT,
+  industry_tags         JSONB NOT NULL DEFAULT '[]',
+  ingestion_method      newsletter_ingestion_method NOT NULL DEFAULT 'pending',
+  feed_url              TEXT,
+  syndication_feed_id   UUID REFERENCES syndication_feeds(id),
+  system_email_address  TEXT,
+  status                newsletter_status NOT NULL DEFAULT 'pending_admin_setup',
+  logo_url              TEXT,
+  last_email_received_at TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_newsletter_status ON newsletter_registry (status);
+CREATE INDEX idx_newsletter_ingestion ON newsletter_registry (ingestion_method);
+
+CREATE TABLE user_newsletter_subscriptions (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         UUID NOT NULL REFERENCES users(id),
+  newsletter_id   UUID NOT NULL REFERENCES newsletter_registry(id),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT unique_user_newsletter UNIQUE (user_id, newsletter_id)
+);
+
+CREATE INDEX idx_user_newsletter_user ON user_newsletter_subscriptions (user_id);
+CREATE INDEX idx_user_newsletter_newsletter ON user_newsletter_subscriptions (newsletter_id);
