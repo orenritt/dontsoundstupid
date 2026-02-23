@@ -182,7 +182,7 @@ export async function smartDiscoverFeeds(userId: string): Promise<SmartDiscovery
       if (existing) {
         feedId = existing.id;
       } else {
-        let siteName = source.name;
+        const siteName = source.name;
         let siteUrl = source.url;
         try {
           siteUrl = new URL(source.url).origin;

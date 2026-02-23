@@ -14,6 +14,7 @@ export default defineConfig({
       "node_modules",
       "src/lib/__tests__/pipeline-smoke.test.ts",
       "src/lib/__tests__/data-sources.test.ts",
+      "src/lib/__tests__/knowledge-gap-smoke.test.ts",
     ],
     coverage: {
       provider: "v8",
