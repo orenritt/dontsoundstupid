@@ -8,35 +8,23 @@ import { runPipeline } from "@/lib/pipeline";
 import { smartDiscoverFeeds, deriveFeedsForUser } from "@/lib/syndication";
 import { deriveNewsQueries, pollNewsQueries } from "@/lib/news-ingestion";
 import { runAiResearch } from "@/lib/ai-research";
+import { updatePipelineStatus } from "@/lib/pipeline-status";
 import { createLogger } from "@/lib/logger";
 
 const log = createLogger("onboarding:complete");
 
-export const maxDuration = 60;
-
-export async function POST() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const userId = session.user.id;
+async function runPostOnboardingPipeline(userId: string) {
   const ulog = log.child({ userId });
   const start = Date.now();
 
-  ulog.info("Onboarding complete — starting post-onboarding pipeline");
-
-  await db
-    .update(users)
-    .set({ onboardingStatus: "completed" })
-    .where(eq(users.id, userId));
-
   try {
+    updatePipelineStatus(userId, "loading-profile");
     ulog.info("Seeding knowledge graph");
     await seedKnowledgeGraph(userId);
     ulog.info({ elapsed: Date.now() - start }, "Knowledge graph seeded");
 
     try {
+      updatePipelineStatus(userId, "ingesting-news");
       ulog.info("Deriving news queries");
       await deriveNewsQueries(userId);
 
@@ -64,9 +52,39 @@ export async function POST() {
     ulog.info("Running pipeline");
     const briefingId = await runPipeline(userId);
     ulog.info({ briefingId, totalMs: Date.now() - start }, "Post-onboarding pipeline completed");
-    return NextResponse.json({ ok: true, briefingId });
   } catch (e) {
     ulog.error({ err: e, totalMs: Date.now() - start }, "Post-onboarding pipeline FAILED");
-    return NextResponse.json({ ok: true, briefingId: null });
+    updatePipelineStatus(userId, "failed", {
+      error: e instanceof Error ? e.message : "Pipeline failed",
+    });
   }
+}
+
+export async function POST() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const userId = session.user.id;
+  const ulog = log.child({ userId });
+
+  ulog.info("Onboarding complete — marking user and starting background pipeline");
+
+  await db
+    .update(users)
+    .set({ onboardingStatus: "completed" })
+    .where(eq(users.id, userId));
+
+  updatePipelineStatus(userId, "starting");
+
+  // Fire and forget — client polls /api/pipeline/status for progress
+  runPostOnboardingPipeline(userId).catch((err) => {
+    ulog.error({ err }, "Background pipeline crashed unexpectedly");
+    updatePipelineStatus(userId, "failed", {
+      error: err instanceof Error ? err.message : "Unknown error",
+    });
+  });
+
+  return NextResponse.json({ ok: true });
 }

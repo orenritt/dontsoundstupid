@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useWhisper } from "@/hooks/use-whisper";
 
 interface ConversationStepProps {
   userName?: string;
@@ -81,12 +82,27 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
   const [completedPairs, setCompletedPairs] = useState<{ question: string; answer: string }[]>([]);
   const [phase, setPhase] = useState<Phase>(savedTranscript ? "done" : "answering");
   const [inputMode, setInputMode] = useState<InputMode>("voice");
-  const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
   const [usedVoice, setUsedVoice] = useState(false);
-  const [livePartial, setLivePartial] = useState("");
   const [alreadySaved, setAlreadySaved] = useState(!!savedTranscript);
+
+  const handleTranscript = useCallback((text: string) => {
+    setCurrentAnswer(prev => {
+      const separator = prev.length > 0 ? " " : "";
+      return prev + separator + text;
+    });
+    setUsedVoice(true);
+  }, []);
+
+  const {
+    recording,
+    transcribing,
+    error: whisperError,
+    toggleRecording,
+  } = useWhisper(handleTranscript);
+
+  const error = whisperError || localError;
 
   useEffect(() => {
     if (savedTranscript && completedPairs.length === 0) {
@@ -103,125 +119,12 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
     }
   }, [savedTranscript, completedPairs.length]);
 
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const wantRecordingRef = useRef(false);
-  const lastFinalIndexRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const currentPrompt = PROMPTS[promptIndex];
   const canSubmitAnswer = currentAnswer.trim().length >= 10;
   const hasMorePrompts = promptIndex < PROMPTS.length - 1;
   const inputMethod = usedVoice ? "voice" : "text";
-
-  const stopRecording = useCallback(() => {
-    wantRecordingRef.current = false;
-    recognitionRef.current?.stop();
-    recognitionRef.current = null;
-    setRecording(false);
-    setLivePartial("");
-  }, []);
-
-  const startRecording = useCallback(() => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Voice input is not supported in this browser. Please use Chrome or Edge.");
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.lang = "en-US";
-    (recognition as any).maxAlternatives = 1;
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalText = "";
-      let interimText = "";
-
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          if (i >= lastFinalIndexRef.current) {
-            finalText += result[0].transcript;
-            lastFinalIndexRef.current = i + 1;
-          }
-        } else {
-          interimText += result[0].transcript;
-        }
-      }
-
-      if (finalText) {
-        setCurrentAnswer(prev => {
-          const separator = prev.length > 0 ? " " : "";
-          return prev + separator + finalText.trim();
-        });
-        setUsedVoice(true);
-      }
-      setLivePartial(interimText);
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      if (event.error === "not-allowed") {
-        setError("Microphone access denied. Please allow microphone access and try again.");
-        stopRecording();
-      } else if (event.error === "no-speech") {
-        return;
-      } else if (event.error !== "aborted") {
-        setError(`Voice error: ${event.error}`);
-        stopRecording();
-      }
-    };
-
-    recognition.onend = () => {
-      setLivePartial("");
-      if (wantRecordingRef.current) {
-        lastFinalIndexRef.current = 0;
-        try {
-          const nextRecognition = new SpeechRecognition();
-          nextRecognition.continuous = false;
-          nextRecognition.interimResults = true;
-          nextRecognition.lang = "en-US";
-          (nextRecognition as any).maxAlternatives = 1;
-          nextRecognition.onresult = recognition.onresult;
-          nextRecognition.onerror = recognition.onerror;
-          nextRecognition.onend = recognition.onend;
-          recognitionRef.current = nextRecognition;
-          nextRecognition.start();
-          return;
-        } catch {
-          // Failed to restart
-        }
-      }
-      setRecording(false);
-      recognitionRef.current = null;
-    };
-
-    wantRecordingRef.current = true;
-    lastFinalIndexRef.current = 0;
-    recognitionRef.current = recognition;
-    try {
-      recognition.start();
-    } catch (err) {
-      setError(`Voice error: ${err instanceof Error ? err.message : String(err)}`);
-      recognitionRef.current = null;
-      wantRecordingRef.current = false;
-      return;
-    }
-    setRecording(true);
-    setError(null);
-  }, [stopRecording]);
-
-  const toggleRecording = useCallback(() => {
-    if (recording) stopRecording();
-    else startRecording();
-  }, [recording, startRecording, stopRecording]);
-
-  useEffect(() => {
-    return () => {
-      wantRecordingRef.current = false;
-      recognitionRef.current?.stop();
-    };
-  }, []);
 
   useEffect(() => {
     if (phase === "answering" && inputMode === "typing") {
@@ -231,20 +134,20 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
 
   const commitAnswer = useCallback(() => {
     if (!canSubmitAnswer) return;
-    stopRecording();
+    if (recording) toggleRecording();
     setCompletedPairs(prev => [...prev, {
       question: currentPrompt.question,
       answer: currentAnswer.trim(),
     }]);
     setCurrentAnswer("");
-    setError(null);
+    setLocalError(null);
 
     if (hasMorePrompts) {
       setPhase("choosing");
     } else {
       setPhase("done");
     }
-  }, [canSubmitAnswer, stopRecording, currentPrompt, currentAnswer, hasMorePrompts]);
+  }, [canSubmitAnswer, recording, toggleRecording, currentPrompt, currentAnswer, hasMorePrompts]);
 
   const handleAnotherQuestion = useCallback(() => {
     setPromptIndex(prev => prev + 1);
@@ -252,9 +155,9 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
   }, []);
 
   const switchToTyping = useCallback(() => {
-    stopRecording();
+    if (recording) toggleRecording();
     setInputMode("typing");
-  }, [stopRecording]);
+  }, [recording, toggleRecording]);
 
   const submitAll = async () => {
     if (alreadySaved) {
@@ -266,7 +169,7 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
     if (allPairs.length === 0 || loading) return;
 
     setLoading(true);
-    setError(null);
+    setLocalError(null);
 
     const transcript = allPairs
       .map(p => `Q: ${p.question}\nA: ${p.answer}`)
@@ -284,7 +187,7 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
       setAlreadySaved(true);
       onComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setLocalError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setLoading(false);
     }
@@ -394,12 +297,16 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
                   </motion.button>
 
                   <p className="text-sm text-gray-500">
-                    {recording ? "Listening... tap to stop" : "Tap to start talking"}
+                    {recording
+                      ? "Listening… tap to stop"
+                      : transcribing
+                        ? "Transcribing…"
+                        : "Tap to start talking"}
                   </p>
                 </div>
 
-                {/* Live transcript area */}
-                {(currentAnswer || (livePartial && recording)) && (
+                {/* Transcript area */}
+                {(currentAnswer || transcribing) && (
                   <motion.div
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -407,8 +314,8 @@ export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscrip
                   >
                     <p className="text-sm text-white/80">
                       {currentAnswer}
-                      {livePartial && recording && (
-                        <span className="text-white/40"> {livePartial}</span>
+                      {transcribing && (
+                        <span className="text-white/40"> transcribing…</span>
                       )}
                     </p>
                   </motion.div>

@@ -93,9 +93,10 @@ export default function BriefingPage() {
 
   async function loadPage() {
     try {
-      const [statusRes, briefingRes] = await Promise.all([
+      const [statusRes, briefingRes, pipelineRes] = await Promise.all([
         fetch("/api/user/status"),
         fetch("/api/briefings/latest"),
+        fetch("/api/pipeline/status"),
       ]);
 
       if (!statusRes.ok) {
@@ -115,6 +116,16 @@ export default function BriefingPage() {
         if (data.briefing) {
           setBriefing(data.briefing);
           setPageState("has-briefing");
+          return;
+        }
+      }
+
+      if (pipelineRes.ok) {
+        const pipelineData: PipelineProgress = await pipelineRes.json();
+        if (pipelineData.running) {
+          setProgress(pipelineData);
+          setPageState("generating");
+          startPolling();
           return;
         }
       }

@@ -7,41 +7,22 @@ interface CompletionStepProps {
   onDashboard: () => void;
 }
 
-type Phase = "ready" | "seeding" | "generating" | "done";
-
-const PHASE_LABELS: Record<Phase, string> = {
-  ready: "Go to Your Dashboard",
-  seeding: "Building your knowledge profile...",
-  generating: "Generating your first briefing...",
-  done: "Taking you to your briefing...",
-};
-
 export function CompletionStep({ onDashboard }: CompletionStepProps) {
-  const [phase, setPhase] = useState<Phase>("ready");
+  const [clicked, setClicked] = useState(false);
 
-  const handleGoToDashboard = async () => {
-    setPhase("seeding");
+  const handleGoToDashboard = () => {
+    if (clicked) return;
+    setClicked(true);
 
-    setTimeout(() => {
-      setPhase("generating");
-    }, 3000);
+    fetch("/api/onboarding/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }).catch(() => {
+      // Pipeline will be picked up on next visit
+    });
 
-    try {
-      const res = await fetch("/api/onboarding/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (res.ok) {
-        setPhase("done");
-        setTimeout(onDashboard, 500);
-      }
-    } catch {
-      onDashboard();
-    }
+    setTimeout(onDashboard, 600);
   };
-
-  const isWorking = phase !== "ready";
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
@@ -78,27 +59,11 @@ export function CompletionStep({ onDashboard }: CompletionStepProps) {
 
         <button
           onClick={handleGoToDashboard}
-          disabled={isWorking}
+          disabled={clicked}
           className="w-full rounded-lg bg-gray-900 px-6 py-3 font-medium text-white disabled:opacity-50 transition-all"
         >
-          {PHASE_LABELS[phase]}
+          {clicked ? "Taking you to your briefing..." : "Go to Your Dashboard"}
         </button>
-
-        {isWorking && phase !== "done" && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="mt-4 flex items-center justify-center gap-2 text-sm text-gray-400"
-          >
-            <motion.span
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-            >
-              ●
-            </motion.span>
-            This takes about 30 seconds
-          </motion.div>
-        )}
       </div>
     </div>
   );

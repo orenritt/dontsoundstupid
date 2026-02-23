@@ -177,7 +177,12 @@ export function NewsletterStep({ onComplete, onBack }: NewsletterStepProps) {
                         <h3 className="text-base font-semibold text-gray-900">
                           {s.name}
                         </h3>
-                        <p className="mt-0.5 text-sm text-gray-500 line-clamp-2">
+                        {s.description && (
+                          <p className="mt-0.5 text-sm text-gray-500 line-clamp-1">
+                            {s.description}
+                          </p>
+                        )}
+                        <p className="mt-1 text-sm text-indigo-600 italic line-clamp-2">
                           {s.why}
                         </p>
                       </div>

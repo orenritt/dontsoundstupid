@@ -135,6 +135,28 @@ test.describe("Full onboarding flow", () => {
     await expect(page.getByText("Build your content universe")).toBeVisible({
       timeout: 10_000,
     });
+
+    // Verify suggestion cards rendered with correct data
+    await expect(page.getByText("TLDR")).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByText("Morning Brew")).toBeVisible();
+    await expect(
+      page.getByText("Covers the infrastructure and platform topics")
+    ).toBeVisible();
+
+    // Add a newsletter and verify toggle state
+    const addButtons = page.getByRole("button", { name: "+ Add" });
+    await addButtons.first().click();
+    await expect(
+      page.getByRole("button", { name: /Added/ })
+    ).toBeVisible({ timeout: 3_000 });
+
+    // Undo — click "Added" to remove it
+    await page.getByRole("button", { name: /Added/ }).click();
+    await expect(addButtons.first()).toBeVisible({ timeout: 3_000 });
+
+    // Re-add before continuing
+    await addButtons.first().click();
+
     await page.getByRole("button", { name: "Continue" }).click();
 
     // ── Step 9: Completion ──

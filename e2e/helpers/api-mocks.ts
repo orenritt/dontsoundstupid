@@ -32,6 +32,23 @@ export async function mockLinkedInEnrichment(page: Page) {
 }
 
 /**
+ * Mock the Whisper transcription endpoint (avoid OpenAI calls).
+ */
+export async function mockTranscribe(page: Page) {
+  await page.route("**/api/transcribe", async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ text: "This is a mock transcription from the test suite." }),
+    });
+  });
+}
+
+/**
  * Mock the conversation transcript parsing (avoid LLM calls).
  */
 export async function mockConversationParsing(page: Page) {
@@ -283,7 +300,7 @@ export async function mockUserStatus(page: Page, status: "not_started" | "in_pro
 }
 
 /**
- * Mock the newsletter suggestions endpoint.
+ * Mock all newsletter-related endpoints used during onboarding.
  */
 export async function mockNewsletterSuggestions(page: Page) {
   await page.route("**/api/newsletters/suggestions*", async (route: Route) => {
@@ -291,9 +308,25 @@ export async function mockNewsletterSuggestions(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        newsletters: [
-          { id: "nl-1", name: "TLDR", description: "Daily tech newsletter", websiteUrl: "https://tldr.tech" },
-          { id: "nl-2", name: "Morning Brew", description: "Business news", websiteUrl: "https://morningbrew.com" },
+        suggestions: [
+          {
+            newsletterId: "nl-1",
+            name: "TLDR",
+            description: "Daily tech newsletter",
+            websiteUrl: "https://tldr.tech",
+            logoUrl: null,
+            industryTags: ["tech"],
+            why: "Covers the infrastructure and platform topics you work with daily",
+          },
+          {
+            newsletterId: "nl-2",
+            name: "Morning Brew",
+            description: "Business news for professionals",
+            websiteUrl: "https://morningbrew.com",
+            logoUrl: null,
+            industryTags: ["business"],
+            why: "Quick business context to round out your technical focus",
+          },
         ],
       }),
     });
@@ -304,6 +337,44 @@ export async function mockNewsletterSuggestions(page: Page) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ subscriptions: [] }),
+    });
+  });
+
+  await page.route("**/api/newsletters/subscribe", async (route: Route) => {
+    const method = route.request().method();
+    if (method === "POST") {
+      const body = JSON.parse(route.request().postData() || "{}");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "subscribed", newsletterId: body.newsletterId }),
+      });
+    } else if (method === "DELETE") {
+      const body = JSON.parse(route.request().postData() || "{}");
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "unsubscribed", newsletterId: body.newsletterId }),
+      });
+    } else {
+      await route.fallback();
+    }
+  });
+
+  await page.route("**/api/newsletters/submit", async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    const body = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "pending",
+        newsletter: { id: "nl-submitted", name: body.input },
+        message: "We'll get this set up for you. You'll start seeing content once it's activated.",
+      }),
     });
   });
 }
@@ -379,6 +450,7 @@ export async function mockUserProfile(page: Page) {
  */
 export async function mockFullOnboarding(page: Page) {
   await mockLinkedInEnrichment(page);
+  await mockTranscribe(page);
   await mockConversationParsing(page);
   await mockRapidFire(page);
   await mockImpressList(page);
