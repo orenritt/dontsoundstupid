@@ -1,12 +1,15 @@
+import type { BriefingReason } from "./composer";
+
 export interface BriefingItem {
   id: string;
+  itemNumber: number;
+  reason: BriefingReason;
+  reasonLabel: string;
   topic: string;
-  category: string;
-  source: string;
-  summary: string;
   content: string;
-  relevanceScore: number;
-  metadata: Record<string, string>;
+  sourceUrl: string | null;
+  sourceLabel: string | null;
+  sourceSignalIds: string[];
 }
 
 export interface Briefing {

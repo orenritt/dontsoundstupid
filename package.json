@@ -1,27 +1,46 @@
 {
-  "name": "dontsoundstupid-1",
-  "version": "1.0.0",
-  "type": "module",
-  "main": "dist/index.js",
+  "name": "dontsoundstupid",
+  "version": "0.1.0",
+  "private": true,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/orenritt/dontsoundstupid.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/orenritt/dontsoundstupid/issues"
-  },
-  "homepage": "https://github.com/orenritt/dontsoundstupid#readme",
-  "description": "",
-  "devDependencies": {
-    "typescript": "^5.9.3"
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "deploy": "railway up --detach",
+    "logs": "railway logs",
+    "railway:vars": "railway variables",
+    "railway:status": "railway status"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "bcryptjs": "^3.0.2",
+    "drizzle-orm": "^0.44.2",
+    "framer-motion": "^12.12.2",
+    "google-trends-api": "^4.9.2",
+    "next": "^15.3.3",
+    "next-auth": "^5.0.0-beta.25",
+    "openai": "^4.103.0",
+    "postgres": "^3.4.7",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^3.25.32"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.3",
+    "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
+    "drizzle-kit": "^0.31.1",
+    "eslint": "^9",
+    "eslint-config-next": "^15.3.3",
+    "tailwindcss": "^4",
+    "typescript": "^5.9.3"
   }
 }

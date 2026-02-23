@@ -1,3 +1,3 @@
-export * from "./steps.js";
-export * from "./script.js";
-export * from "./flow.js";
+export * from "./steps";
+export * from "./script";
+export * from "./flow";

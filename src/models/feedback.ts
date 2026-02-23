@@ -24,10 +24,20 @@ export interface TuneLessFeedback {
   timestamp: string;
 }
 
+export interface NotNovelFeedback {
+  type: "not-novel";
+  briefingItemId: string;
+  topic: string;
+  category: string;
+  comment: string | null;
+  timestamp: string;
+}
+
 export type FeedbackSignal =
   | DeepDiveRequest
   | TuneMoreFeedback
-  | TuneLessFeedback;
+  | TuneLessFeedback
+  | NotNovelFeedback;
 
 export interface RelevanceAdjustment {
   topic: string;

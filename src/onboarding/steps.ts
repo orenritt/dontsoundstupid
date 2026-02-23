@@ -2,6 +2,7 @@ export type OnboardingStepId =
   | "user-linkedin"
   | "impress-list"
   | "conversation"
+  | "rapid-fire"
   | "peer-review"
   | "delivery-preferences"
   | "calendar-connect"
@@ -12,7 +13,7 @@ export interface OnboardingStep {
   title: string;
   prompt: string;
   followUpPrompts?: string[];
-  inputType: "url" | "url-list" | "conversation" | "peer-confirmation" | "delivery-selection" | "calendar-oauth" | "skip-or-connect";
+  inputType: "url" | "url-list" | "free-text-voice" | "rapid-fire-classify" | "peer-confirmation" | "delivery-selection" | "skip-or-connect";
 }
 
 export interface UserLinkedinInput {
@@ -23,17 +24,21 @@ export interface ImpressListInput {
   linkedinUrls: string[];
 }
 
-export interface IntelligenceGoalInput {
-  category: string;
-  detail: string | null;
+export interface ConversationInput {
+  transcript: string;
+  inputMethod: "text" | "voice";
 }
 
-export interface ConversationInput {
-  currentWork: string;
-  challenges: string;
-  sharpTopics: string;
-  embarrassments: string;
-  intelligenceGoals: IntelligenceGoalInput[];
+export type RapidFireResponse = "know-tons" | "need-more" | "not-relevant";
+
+export interface RapidFireClassification {
+  topic: string;
+  context: string;
+  response: RapidFireResponse;
+}
+
+export interface RapidFireInput {
+  classifications: RapidFireClassification[];
 }
 
 export interface PeerReviewInput {
@@ -70,6 +75,7 @@ export type OnboardingInput =
   | { step: "user-linkedin"; data: UserLinkedinInput }
   | { step: "impress-list"; data: ImpressListInput }
   | { step: "conversation"; data: ConversationInput }
+  | { step: "rapid-fire"; data: RapidFireInput }
   | { step: "peer-review"; data: PeerReviewInput }
   | { step: "delivery-preferences"; data: DeliveryPreferencesInput }
   | { step: "calendar-connect"; data: CalendarConnectInput };

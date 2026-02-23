@@ -1,9 +1,9 @@
-import type { IdentityLayer } from "./identity.js";
-import type { ContextLayer } from "./context.js";
-import type { PeerList } from "./peers.js";
-import type { ImpressList } from "./impress.js";
-import type { DeliveryPreferences } from "./delivery.js";
-import type { CalendarData } from "./calendar.js";
+import type { IdentityLayer } from "./identity";
+import type { ContextLayer } from "./context";
+import type { PeerList } from "./peers";
+import type { ImpressList } from "./impress";
+import type { DeliveryPreferences } from "./delivery";
+import type { CalendarData } from "./calendar";
 
 export interface UserProfile {
   id: string;

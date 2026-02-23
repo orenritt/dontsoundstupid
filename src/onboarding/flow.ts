@@ -1,11 +1,13 @@
-import { ONBOARDING_STEPS } from "./script.js";
-import type { OnboardingStepId } from "./steps.js";
+import { ONBOARDING_STEPS } from "./script";
+import type { OnboardingStepId } from "./steps";
 
 export interface OnboardingState {
   currentStep: OnboardingStepId;
   completedSteps: OnboardingStepId[];
   enrichmentReady: boolean;
   peerResearchReady: boolean;
+  /** Set to true once the LLM has parsed the conversation transcript and generated rapid-fire topics. */
+  rapidFireTopicsReady: boolean;
 }
 
 export function createInitialState(): OnboardingState {
@@ -14,24 +16,28 @@ export function createInitialState(): OnboardingState {
     completedSteps: [],
     enrichmentReady: false,
     peerResearchReady: false,
+    rapidFireTopicsReady: false,
   };
 }
 
 /**
  * Determines the next step based on current state.
  *
- * The flow is linear (steps 1-5), but step 4 (peer-review) can only
- * proceed once the system has finished researching peer organizations —
- * which requires both enrichment data AND conversation data.
+ * Flow: linkedin → conversation → impress list → rapid-fire → peer review → delivery → calendar → complete
+ *
+ * Gates:
+ * - rapid-fire waits for the system to parse the conversation transcript
+ * - peer-review waits for enrichment + peer research to complete
  */
 export function getNextStep(state: OnboardingState): OnboardingStepId | null {
   const stepOrder: OnboardingStepId[] = [
     "user-linkedin",
-    "impress-list",
     "conversation",
+    "impress-list",
+    "rapid-fire",
     "peer-review",
-    "calendar-connect",
     "delivery-preferences",
+    "calendar-connect",
     "complete",
   ];
 
@@ -42,6 +48,10 @@ export function getNextStep(state: OnboardingState): OnboardingStepId | null {
 
   const nextStep = stepOrder[currentIndex + 1] as OnboardingStepId | undefined;
   if (!nextStep) {
+    return null;
+  }
+
+  if (nextStep === "rapid-fire" && !state.rapidFireTopicsReady) {
     return null;
   }
 

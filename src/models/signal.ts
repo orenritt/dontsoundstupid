@@ -4,7 +4,8 @@ export type SignalLayer =
   | "narrative"
   | "events"
   | "personal-graph"
-  | "ai-research";
+  | "ai-research"
+  | "email-forward";
 
 export interface Signal {
   id: string;
@@ -33,7 +34,8 @@ export type TriggerReason =
   | "impress-list"
   | "intelligence-goal"
   | "industry-scan"
-  | "personal-graph";
+  | "personal-graph"
+  | "user-curated";
 
 export interface SignalProvenance {
   id: string;

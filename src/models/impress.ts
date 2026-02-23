@@ -1,4 +1,4 @@
-import type { EnrichedPerson } from "./identity.js";
+import type { EnrichedPerson } from "./identity";
 
 export type ImpressContactSource =
   | "onboarding"

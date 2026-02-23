@@ -1,42 +1,51 @@
-import type { OnboardingStep } from "./steps.js";
+import type { OnboardingStep } from "./steps";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
   {
     id: "user-linkedin",
-    title: "About You",
-    prompt: "What's your LinkedIn profile URL?",
+    title: "Who Are You?",
+    prompt: "Paste your LinkedIn profile URL.",
     inputType: "url",
   },
   {
+    id: "conversation",
+    title: "What Do You Really Do?",
+    prompt:
+      "No titles and BS. No generalities. Tell me what you actually do all day, " +
+      "what you're working on, what you're an expert in, what you wish you knew " +
+      "more about, and what you're trying to accomplish. The world of content " +
+      "you live in. Talk as much or as little as you want.",
+    followUpPrompts: [
+      "You can type or hit the microphone — we recommend voice, people tend to share more. " +
+        "Links to projects, docs, or anything else are welcome too.",
+    ],
+    inputType: "free-text-voice",
+  },
+  {
     id: "impress-list",
-    title: "Who Do You Want to Impress?",
+    title: "Who Do We Need to Impress?",
     prompt:
       "Who are the people whose opinion matters most to you professionally? " +
       "Your boss, board members, investors, key clients, mentors — anyone you " +
-      "don't want to sound stupid in front of. Share their LinkedIn URLs.",
+      "don't want to sound stupid in front of. Add their LinkedIn profiles.",
     followUpPrompts: [
       "Anyone else? You can always add more later.",
     ],
     inputType: "url-list",
   },
   {
-    id: "conversation",
-    title: "What Are You Working On?",
+    id: "rapid-fire",
+    title: "Quick Clarifications",
     prompt:
-      "Now I need to understand what you're actually doing day-to-day. " +
-      "This is the stuff LinkedIn doesn't capture.",
+      "Based on what you told me, here are the topics and areas I picked up on. " +
+      "For each one, tell me: do you already know tons about this, do you need " +
+      "to know more, or is it not really relevant to you?",
     followUpPrompts: [
-      "What are you actually working on right now? What are your current projects or initiatives?",
-      "What are the biggest challenges or concerns in your work right now?",
-      "What terms, topics, or trends do you need to stay sharp on?",
-      "What would embarrass you to not know about in your next meeting?",
-      "What does 'not sounding stupid' mean for you? Pick the ones that matter most: " +
-        "following industry trends, catching new jargon, tracking new companies/products, " +
-        "learning best practices, following research/papers, monitoring regulatory changes, " +
-        "competitive intelligence, knowing what your network is talking about — " +
-        "or tell me something else entirely.",
+      "Swipe right or tap 'Know tons' if you're an expert. " +
+        "Tap 'Need more' if you want to learn. " +
+        "Swipe left or tap 'Not relevant' to skip it entirely.",
     ],
-    inputType: "conversation",
+    inputType: "rapid-fire-classify",
   },
   {
     id: "peer-review",
@@ -45,8 +54,20 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
       "Based on everything you've told me, I found some organizations that " +
       "seem similar to yours. For each one, tell me: is this relevant? " +
       "You can also add a comment — like 'they're bigger but same market' or " +
-      "'they focus on enterprise, we're consumer'. This helps me understand your world better.",
+      "'they focus on enterprise, we're consumer'.",
     inputType: "peer-confirmation",
+  },
+  {
+    id: "delivery-preferences",
+    title: "Where Should I Send Your Briefing?",
+    prompt:
+      "Where do you want your daily briefing? " +
+      "I can send it via email, Slack, SMS, or WhatsApp.",
+    followUpPrompts: [
+      "What time works best? (e.g., 7:00 AM before your first meeting)",
+      "How detailed do you want it? Concise (3-5 bullets), standard (summary with context), or detailed (full briefing with links and sources)?",
+    ],
+    inputType: "delivery-selection",
   },
   {
     id: "calendar-connect",
@@ -59,24 +80,12 @@ export const ONBOARDING_STEPS: OnboardingStep[] = [
     inputType: "skip-or-connect",
   },
   {
-    id: "delivery-preferences",
-    title: "Where Should I Send Your Briefing?",
-    prompt:
-      "Last thing — where do you want your daily briefing? " +
-      "I can send it via email, Slack, SMS, or WhatsApp.",
-    followUpPrompts: [
-      "What time works best? (e.g., 7:00 AM before your first meeting)",
-      "How detailed do you want it? Concise (3-5 bullets), standard (summary with context), or detailed (full briefing with links and sources)?",
-    ],
-    inputType: "delivery-selection",
-  },
-  {
     id: "complete",
     title: "You're All Set",
     prompt:
-      "Your profile is built. I now know who you are, who you want to " +
-      "impress, what you're working on, and who your peers are. " +
+      "Your profile is built. I now know who you are, what you do, " +
+      "who you want to impress, and what matters to you. " +
       "Your first daily briefing is on its way.",
-    inputType: "conversation",
+    inputType: "free-text-voice",
   },
 ];

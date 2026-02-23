@@ -16,7 +16,22 @@ export interface IntelligenceGoal {
   active: boolean;
 }
 
-import type { FeedbackHistory } from "./feedback.js";
+export type ExpertiseLevel = "novice" | "developing" | "proficient" | "expert";
+
+export interface SelfAssessment {
+  category: IntelligenceGoalCategory;
+  level: ExpertiseLevel;
+  assessedAt: string;
+}
+
+export interface CategoryScoringOverride {
+  category: IntelligenceGoalCategory;
+  relevanceMultiplier: number;
+  noveltyThreshold: number;
+  derivedFrom: ExpertiseLevel;
+}
+
+import type { FeedbackHistory } from "./feedback";
 
 export interface ContextLayer {
   initiatives: Initiative[];
@@ -24,6 +39,8 @@ export interface ContextLayer {
   topics: string[];
   knowledgeGaps: string[];
   intelligenceGoals: IntelligenceGoal[];
+  selfAssessments: SelfAssessment[];
+  categoryScoringOverrides: CategoryScoringOverride[];
   geographicRelevance: string[];
   feedbackHistory: FeedbackHistory;
   updatedAt: string;
@@ -52,5 +69,6 @@ export interface ContextSnapshot {
   topics: string[];
   knowledgeGaps: string[];
   intelligenceGoals: IntelligenceGoal[];
+  selfAssessments: SelfAssessment[];
   snapshotAt: string;
 }
