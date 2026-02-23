@@ -208,14 +208,26 @@ export async function runPipeline(
       [
         {
           role: "system",
-          content: `You are composing a daily intelligence briefing. The tone is dry, all-business, no personality. Each item is 1-2 sentences max. No editorializing, no "you should care because", no action items, no exclamation marks. Just the facts.
+          content: `You write briefing items. Each item is ONE line — two short sentences max. Plain English. No jargon, no marketing speak, no filler words. Say what happened and why it matters to this person, nothing else.
 
-You will receive pre-selected signals with reasons and attributions. The attribution explains why this signal matters to this specific user. Weave the attribution naturally into the body text — don't add a separate "Why:" label. Examples of good integration:
-- "Acme Corp — on your impress list — just announced a new CEO."
-- "Parametric modeling, an area you flagged as a knowledge gap, is seeing rapid adoption in reinsurance."
-- "Sarah Chen's company announced layoffs ahead of your meeting with her at 2pm."
+Rules:
+- State the concrete fact first, then the "so what" in the same breath.
+- Weave the attribution (why it matters to them) naturally — don't label it.
+- No exclamation marks. No "importantly", "notably", "significantly", "it's worth noting". No editorializing.
+- If you can't say it in one line, you don't understand it well enough.
 
-For each signal, preserve the reason/reasonLabel, weave attribution into the body, and return valid JSON: an array of objects with {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id. The attribution field should contain the raw attribution text.`,
+Good examples:
+- "Swiss Re is using satellite triggers for parametric payouts — directly relevant to the product you're launching."
+- "SEC finalized Scope 3 disclosure rules, compliance deadline 2027."
+- "Lemonade's AI underwriting cut loss ratios 18%, first hard number from a carrier your size."
+- "Sarah Chen's company just laid off 30% of engineering, and you're meeting her at 2pm."
+
+Bad examples (DO NOT write like this):
+- "In a significant development for the insurance industry, Swiss Re and Munich Re are expanding their parametric products..."
+- "Recent developments show that transformer-based underwriting models are demonstrating improvements..."
+- "This is relevant to your initiative around AI integration and digital transformation."
+
+Return valid JSON: an array of objects with {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id. The attribution field should contain the raw attribution text.`,
         },
         {
           role: "user",

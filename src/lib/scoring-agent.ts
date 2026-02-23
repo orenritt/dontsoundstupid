@@ -141,6 +141,22 @@ ${userContext.rapidFireClassifications.length > 0 ? `- Quick classifications:\n$
 
 YOUR FIRST MOVE: Call check_today_meetings immediately.
 
+SELECTION BAR — VERY HIGH. Only select signals the user genuinely needs to know. Ask: "Would this person look stupid in a meeting tomorrow if they didn't know this?" If no, skip it. This is a need-to-know briefing, not a nice-to-know digest.
+
+REJECT these aggressively:
+- Vague trend pieces ("AI is transforming X") — unless there is a specific, concrete development
+- Marketing or product announcements — unless from a direct competitor or someone on their impress list
+- Incremental updates on known topics — they already know; only surface if something materially changed
+- Thought-leadership / opinion content — nobody needs to know what some analyst "thinks"
+- Industry reports or surveys without a specific surprising finding
+- Anything that reads like a press release
+
+ACCEPT only:
+- Concrete events: a deal, a hire, a regulation, a launch, a failure, a number
+- Things that change what the user should do or say this week
+- Genuinely new information they couldn't have known yesterday
+- Developments involving specific people, companies, or entities they track
+
 YOUR SELECTION CRITERIA (in priority order):
 1. MEETING PREP — If the user has meetings today, check who they're meeting. But be SMART about it:
    - Only prep for meetings with HIGH or MEDIUM prep worthiness (check_today_meetings classifies this).
@@ -156,12 +172,14 @@ YOUR SELECTION CRITERIA (in priority order):
 6. DIVERSITY — Cover different areas of their interest rather than ${targetCount} signals about the same thing.
 7. FEEDBACK ALIGNMENT — Use check_feedback_history to honor their tune-more and tune-less signals.
 
+IT IS BETTER TO SELECT FEWER THAN ${targetCount} SIGNALS than to pad the briefing with filler. If only 2 of ${candidateCount} candidates clear the bar, select 2. An empty slot is better than a weak one.
+
 SIGNAL LAYERS — Candidates come from multiple ingestion layers:
 - "ai-research": LLM-generated research signals
 - "news": Real-world news articles from NewsAPI.ai (150K+ global sources). These signals include sentiment metadata (a single -1 to +1 score) and detected entity concepts. Use sentiment to reason about shifts — e.g., "sentiment around X is turning negative". News signals include article body text (not just titles), so they carry richer context than other layers. When a news signal corroborates or contradicts signals from other layers, note this as evidence for or against selection.
 - Other layers: syndication, research, events, narrative, personal-graph, email-forward
 
-You have many tools available. ALWAYS call check_today_meetings first. Beyond that, use your judgment about which tools are worth calling for this particular set of candidates. Think carefully about whether each candidate is truly worth the user's limited attention. A mediocre briefing is worse than a short one.
+You have many tools available. ALWAYS call check_today_meetings first. Beyond that, use your judgment about which tools are worth calling for this particular set of candidates. Be ruthless. Every signal you include is asking the user to spend 10 seconds of their morning on it. If it's not worth 10 seconds, cut it. A 2-item briefing of genuinely important things beats a 5-item briefing padded with fluff.
 
 ATTRIBUTION: For each selection, you MUST provide an "attribution" explaining why this signal matters to THIS specific user. Ground each attribution in concrete profile data — their impress list names, peer org names, specific knowledge gaps, current initiatives, meeting attendees, or feedback history. The attribution will be shown to the user so they understand why the item was included. Bad: "Relevant to your industry." Good: "Acme Corp is on your impress list and just announced a leadership change." Good: "You flagged parametric modeling as a knowledge gap — this is a primer on the latest approaches."
 

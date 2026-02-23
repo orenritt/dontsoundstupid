@@ -272,7 +272,7 @@ describe("runPipeline → compose", () => {
     expect(mockChat).toHaveBeenCalledTimes(1);
     const [messages, opts] = mockChat.mock.calls[0];
     expect(messages[0].role).toBe("system");
-    expect(messages[0].content).toContain("intelligence briefing");
+    expect(messages[0].content).toContain("briefing items");
     expect(messages[1].role).toBe("user");
     expect(opts.model).toBe("gpt-4o-mini");
 

@@ -106,7 +106,7 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
       let finalText = "";
       let interimText = "";
 
-      for (let i = 0; i < event.results.length; i++) {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
           finalText += result[0].transcript;
@@ -128,6 +128,9 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "not-allowed") {
         setError("Microphone access denied. Please allow microphone access and try again.");
+      } else if (event.error === "no-speech") {
+        // Silence timeout — not a real error, restart automatically
+        return;
       } else if (event.error !== "aborted") {
         setError(`Voice error: ${event.error}`);
       }
@@ -135,6 +138,14 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     };
 
     recognition.onend = () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+          return;
+        } catch {
+          // Failed to restart — fall through to cleanup
+        }
+      }
       setRecording(false);
       setLivePartial("");
       recognitionRef.current = null;
