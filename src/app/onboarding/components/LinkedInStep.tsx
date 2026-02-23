@@ -5,19 +5,29 @@ import { motion } from "framer-motion";
 
 interface LinkedInStepProps {
   onComplete: (data: { name: string; photoUrl: string }) => void;
+  initialUrl?: string;
+  initialName?: string;
+  initialPhoto?: string;
 }
 
-export function LinkedInStep({ onComplete }: LinkedInStepProps) {
-  const [linkedinUrl, setLinkedinUrl] = useState("");
+export function LinkedInStep({ onComplete, initialUrl, initialName, initialPhoto }: LinkedInStepProps) {
+  const [linkedinUrl, setLinkedinUrl] = useState(initialUrl ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [enriched, setEnriched] = useState<{ name: string; photoUrl: string } | null>(null);
+  const [enriched, setEnriched] = useState<{ name: string; photoUrl: string } | null>(
+    initialName && initialPhoto ? { name: initialName, photoUrl: initialPhoto } : null
+  );
 
   const isValid = linkedinUrl.includes("linkedin.com/in/");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isValid || loading) return;
+
+    if (enriched && linkedinUrl === initialUrl) {
+      onComplete(enriched);
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -38,7 +48,6 @@ export function LinkedInStep({ onComplete }: LinkedInStepProps) {
       const { name, photoUrl } = data.enriched || {};
       if (name && photoUrl) {
         setEnriched({ name, photoUrl });
-        // Show photo in orb briefly, then auto-advance
         setTimeout(() => onComplete({ name, photoUrl }), 1500);
       } else {
         onComplete({ name: name || "User", photoUrl: photoUrl || "" });

@@ -8,6 +8,9 @@ import { runPipeline } from "@/lib/pipeline";
 import { smartDiscoverFeeds, deriveFeedsForUser } from "@/lib/syndication";
 import { deriveNewsQueries, pollNewsQueries } from "@/lib/news-ingestion";
 import { runAiResearch } from "@/lib/ai-research";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("onboarding:complete");
 
 export const maxDuration = 60;
 
@@ -18,6 +21,10 @@ export async function POST() {
   }
 
   const userId = session.user.id;
+  const ulog = log.child({ userId });
+  const start = Date.now();
+
+  ulog.info("Onboarding complete — starting post-onboarding pipeline");
 
   await db
     .update(users)
@@ -25,30 +32,41 @@ export async function POST() {
     .where(eq(users.id, userId));
 
   try {
+    ulog.info("Seeding knowledge graph");
     await seedKnowledgeGraph(userId);
+    ulog.info({ elapsed: Date.now() - start }, "Knowledge graph seeded");
 
-    // Run initial ingestion to populate signals table before first briefing
     try {
+      ulog.info("Deriving news queries");
       await deriveNewsQueries(userId);
+
+      ulog.info("Deriving syndication feeds");
       await deriveFeedsForUser(userId);
       await smartDiscoverFeeds(userId);
 
+      ulog.info("Running initial ingestion (news poll + AI research)");
+      const ingestionStart = Date.now();
+
       await Promise.all([
         pollNewsQueries(crypto.randomUUID()).catch((e) =>
-          console.error("Initial news poll failed (non-critical):", e)
+          ulog.error({ err: e }, "Initial news poll failed (non-critical)")
         ),
         runAiResearch(userId).catch((e) =>
-          console.error("Initial AI research failed (non-critical):", e)
+          ulog.error({ err: e }, "Initial AI research failed (non-critical)")
         ),
       ]);
+
+      ulog.info({ ingestionMs: Date.now() - ingestionStart }, "Initial ingestion complete");
     } catch (e) {
-      console.error("Initial ingestion failed (non-critical):", e);
+      ulog.error({ err: e, elapsed: Date.now() - start }, "Initial ingestion failed (non-critical) — continuing to pipeline");
     }
 
+    ulog.info("Running pipeline");
     const briefingId = await runPipeline(userId);
+    ulog.info({ briefingId, totalMs: Date.now() - start }, "Post-onboarding pipeline completed");
     return NextResponse.json({ ok: true, briefingId });
   } catch (e) {
-    console.error("Post-onboarding pipeline failed:", e);
+    ulog.error({ err: e, totalMs: Date.now() - start }, "Post-onboarding pipeline FAILED");
     return NextResponse.json({ ok: true, briefingId: null });
   }
 }

@@ -1,4 +1,7 @@
 import { chat } from "../llm";
+import { createLogger } from "../logger";
+
+const log = createLogger("ai-research:query-derivation");
 
 export interface ResearchQueries {
   perplexityQueries: string[];
@@ -99,8 +102,8 @@ Return ONLY a JSON object with two arrays: {"perplexity": [...], "tavily": [...]
       perplexityQueries: Array.isArray(parsed.perplexity) ? parsed.perplexity : [],
       tavilyQueries: Array.isArray(parsed.tavily) ? parsed.tavily : [],
     };
-  } catch {
-    console.error("Failed to parse LLM research queries:", response.content);
+  } catch (err) {
+    log.error({ err, rawResponseSnippet: response.content.slice(0, 300) }, "Failed to parse LLM research queries — returning empty");
     return { perplexityQueries: [], tavilyQueries: [] };
   }
 }
@@ -114,10 +117,13 @@ export async function deriveEnrichedResearchQueries(
 ): Promise<ResearchQueries> {
   const [template, llm] = await Promise.all([
     Promise.resolve(deriveTemplateQueries(profile)),
-    deriveLlmQueries(profile).catch(() => ({
-      perplexityQueries: [] as string[],
-      tavilyQueries: [] as string[],
-    })),
+    deriveLlmQueries(profile).catch((err) => {
+      log.error({ err }, "LLM query derivation failed — using template queries only");
+      return {
+        perplexityQueries: [] as string[],
+        tavilyQueries: [] as string[],
+      };
+    }),
   ]);
 
   const perplexitySet = new Set([...template.perplexityQueries, ...llm.perplexityQueries]);

@@ -21,7 +21,9 @@ import type {
   AgentScoringConfig,
   SignalSelection,
 } from "../models/relevance";
+import { createLogger } from "./logger";
 
+const log = createLogger("scoring-agent");
 const SERPAPI_KEY = process.env.SERPAPI_API_KEY ?? "";
 
 interface CandidateSignal {
@@ -1320,7 +1322,10 @@ export async function runScoringAgent(
   candidates: CandidateSignal[],
   config: AgentScoringConfig = DEFAULT_AGENT_CONFIG
 ): Promise<AgentScoringResult | null> {
-  // Load user context
+  const ulog = log.child({ userId });
+  const start = Date.now();
+  ulog.info({ candidateCount: candidates.length, model: config.model, maxRounds: config.maxToolRounds, targetSelections: config.targetSelections }, "Scoring agent started");
+
   const [user] = await db
     .select()
     .from(users)
@@ -1332,7 +1337,10 @@ export async function runScoringAgent(
     .where(eq(userProfiles.userId, userId))
     .limit(1);
 
-  if (!user || !profile) return null;
+  if (!user || !profile) {
+    ulog.error({ hasUser: !!user, hasProfile: !!profile }, "User or profile not found — cannot score");
+    return null;
+  }
 
   const userContext: UserContext = {
     name: user.name,
@@ -1375,7 +1383,7 @@ export async function runScoringAgent(
         maxTokens: 4096,
       });
     } catch (err) {
-      console.error(`[scoring-agent] LLM call failed in round ${round + 1}:`, err);
+      ulog.error({ err, round: round + 1 }, "LLM call failed in scoring round");
       break;
     }
     totalPromptTokens += response.promptTokens;
@@ -1395,6 +1403,8 @@ export async function runScoringAgent(
       continue;
     }
 
+    ulog.debug({ round: round + 1, tool: toolCall.tool }, "Agent tool call");
+
     if (toolCall.tool === "submit_selections") {
       const selections = parseSelections(toolCall.args);
       if (!selections || selections.length === 0) {
@@ -1411,6 +1421,8 @@ export async function runScoringAgent(
         ...s,
         toolsUsed: [...toolsUsedPerRound],
       }));
+
+      ulog.info({ selections: enrichedSelections.length, rounds: round + 1, toolCalls: toolCallLog.length, totalMs: Date.now() - start, promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens }, "Scoring agent completed");
 
       return {
         userId,
@@ -1444,7 +1456,7 @@ export async function runScoringAgent(
     });
   }
 
-  // Max rounds exhausted — force a final selection
+  ulog.warn({ rounds: config.maxToolRounds, toolCalls: toolCallLog.length }, "Max tool rounds exhausted — forcing final selection");
   const forceResponse = await chat(
     [
       ...messages,
@@ -1463,6 +1475,7 @@ export async function runScoringAgent(
   if (finalCall?.tool === "submit_selections") {
     const selections = parseSelections(finalCall.args);
     if (selections && selections.length > 0) {
+      ulog.info({ selections: selections.length, totalMs: Date.now() - start }, "Scoring agent completed (forced)");
       return {
         userId,
         selections: selections.map((s) => ({ ...s, toolsUsed: [...toolsUsedPerRound] })),
@@ -1479,5 +1492,6 @@ export async function runScoringAgent(
     }
   }
 
+  ulog.error({ totalMs: Date.now() - start, finalResponseSnippet: forceResponse.content.slice(0, 300) }, "Scoring agent failed — could not extract selections");
   return null;
 }

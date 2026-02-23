@@ -58,6 +58,9 @@ export const userProfiles = pgTable("user_profiles", {
   deliveryTime: text("delivery_time"),
   deliveryTimezone: text("delivery_timezone"),
   lastDiscoveryAt: timestamp("last_discovery_at", { withTimezone: true }),
+  reEnrichmentIntervalDays: integer("re_enrichment_interval_days")
+    .notNull()
+    .default(90),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -75,6 +78,8 @@ export interface DeepDiveData {
   summary: string;
 }
 
+export type EnrichmentDepth = "full" | "light" | "none";
+
 export const impressContacts = pgTable(
   "impress_contacts",
   {
@@ -91,6 +96,12 @@ export const impressContacts = pgTable(
     active: boolean("active").notNull().default(true),
     researchStatus: text("research_status").notNull().default("none"),
     deepDiveData: jsonb("deep_dive_data").$type<DeepDiveData>(),
+    lastEnrichedAt: timestamp("last_enriched_at", { withTimezone: true }),
+    enrichmentVersion: integer("enrichment_version").notNull().default(0),
+    enrichmentDepth: text("enrichment_depth")
+      .$type<EnrichmentDepth>()
+      .notNull()
+      .default("none"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -148,6 +159,7 @@ export const knowledgeSourceEnum = pgEnum("knowledge_source", [
   "feedback-implicit",
   "rapid-fire",
   "impress-deep-dive",
+  "calendar-deep-dive",
 ]);
 
 export const knowledgeEntities = pgTable(
@@ -578,6 +590,155 @@ export const rapidFireTopics = pgTable(
       .defaultNow(),
   },
   (table) => [index("idx_rft_user").on(table.userId)]
+);
+
+// --- Signals ---
+
+// --- Reply Sessions & Narrative Detection ---
+
+export const replySessions = pgTable(
+  "reply_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    briefingId: uuid("briefing_id")
+      .notNull()
+      .references(() => briefings.id),
+    channelType: text("channel_type").notNull().default("email"),
+    briefingItems: jsonb("briefing_items")
+      .$type<
+        {
+          id: string;
+          reason: string;
+          reasonLabel: string;
+          topic: string;
+          content: string;
+          sourceUrl: string | null;
+          sourceLabel: string | null;
+          attribution: string | null;
+        }[]
+      >()
+      .notNull(),
+    conversationHistory: jsonb("conversation_history")
+      .$type<{ role: "user" | "system"; text: string; timestamp: string }[]>()
+      .notNull()
+      .default([]),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index("idx_reply_session_user").on(table.userId),
+    index("idx_reply_session_briefing").on(table.briefingId),
+    index("idx_reply_session_active").on(table.userId, table.active),
+  ]
+);
+
+export const inboundReplies = pgTable(
+  "inbound_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    sessionId: uuid("session_id").references(() => replySessions.id),
+    channelType: text("channel_type").notNull(),
+    messageText: text("message_text").notNull(),
+    classifiedIntent: text("classified_intent"),
+    resolvedItemNumber: integer("resolved_item_number"),
+    confidence: real("confidence"),
+    responseText: text("response_text"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_inbound_reply_user").on(table.userId),
+    index("idx_inbound_reply_session").on(table.sessionId),
+  ]
+);
+
+export const narrativeFrames = pgTable(
+  "narrative_frames",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    topicArea: text("topic_area").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull(),
+    momentumScore: real("momentum_score").notNull().default(0),
+    adoptionCount: integer("adoption_count").notNull().default(1),
+    relatedSignalIds: jsonb("related_signal_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_narrative_frame_topic").on(table.topicArea),
+    index("idx_narrative_frame_momentum").on(table.momentumScore),
+  ]
+);
+
+export const termBursts = pgTable(
+  "term_bursts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    topicArea: text("topic_area").notNull(),
+    term: text("term").notNull(),
+    frequencyDelta: real("frequency_delta").notNull().default(0),
+    adoptionVelocity: real("adoption_velocity").notNull().default(0),
+    sourceCount: integer("source_count").notNull().default(1),
+    contextExamples: jsonb("context_examples")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    firstAppearance: timestamp("first_appearance", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_term_burst_topic").on(table.topicArea),
+    index("idx_term_burst_velocity").on(table.adoptionVelocity),
+    uniqueIndex("idx_term_burst_unique").on(table.topicArea, table.term),
+  ]
+);
+
+export const narrativeAnalysisRuns = pgTable(
+  "narrative_analysis_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    topicArea: text("topic_area").notNull(),
+    signalCount: integer("signal_count").notNull().default(0),
+    framesDetected: integer("frames_detected").notNull().default(0),
+    termBurstsDetected: integer("term_bursts_detected").notNull().default(0),
+    modelUsed: text("model_used"),
+    analyzedAt: timestamp("analyzed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index("idx_narr_analysis_topic").on(table.topicArea)]
 );
 
 // --- Signals ---

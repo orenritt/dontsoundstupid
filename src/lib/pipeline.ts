@@ -10,6 +10,10 @@ import { updatePipelineStatus } from "./pipeline-status";
 import { deriveNewsQueries, pollNewsQueries, refreshQueriesForUser } from "./news-ingestion";
 import { deriveFeedsForUser, pollSyndicationFeeds } from "./syndication";
 import { runAiResearch } from "./ai-research";
+import { createReplySession } from "./channel-replies";
+import { createLogger } from "./logger";
+
+const log = createLogger("pipeline");
 
 interface RawSignal {
   title: string;
@@ -22,6 +26,10 @@ export async function runPipeline(
   userId: string,
   agentConfig?: Partial<AgentScoringConfig>
 ): Promise<string | null> {
+  const ulog = log.child({ userId });
+  const pipelineStart = Date.now();
+  ulog.info("Pipeline started");
+
   updatePipelineStatus(userId, "loading-profile");
 
   const [user] = await db
@@ -36,15 +44,19 @@ export async function runPipeline(
     .limit(1);
 
   if (!user || !profile) {
+    ulog.error({ hasUser: !!user, hasProfile: !!profile }, "User or profile not found — aborting pipeline");
     updatePipelineStatus(userId, "failed", { error: "User or profile not found" });
     return null;
   }
+
+  ulog.info({ userName: user.name, company: user.company }, "Profile loaded");
 
   // Ingest fresh signals before scoring
   const diagnostics: Record<string, unknown> = {};
 
   updatePipelineStatus(userId, "ingesting-news");
   try {
+    ulog.info("Deriving news queries");
     await deriveNewsQueries(userId);
     await refreshQueriesForUser(userId);
     const newsResult = await pollNewsQueries(crypto.randomUUID());
@@ -54,13 +66,14 @@ export async function runPipeline(
       signalsCreated: newsResult.signals.length,
       errors: newsResult.errorsEncounted,
     };
-    console.log(`[pipeline] News ingestion:`, diagnostics.news);
+    ulog.info(diagnostics.news, "News ingestion complete");
   } catch (err) {
     diagnostics.news = { error: err instanceof Error ? err.message : String(err) };
-    console.error("[pipeline] News ingestion failed (continuing):", err);
+    ulog.error({ err }, "News ingestion failed (continuing)");
   }
 
   try {
+    ulog.info("Deriving syndication feeds");
     const feedsCreated = await deriveFeedsForUser(userId);
     const synResult = await pollSyndicationFeeds();
     diagnostics.syndication = {
@@ -69,23 +82,25 @@ export async function runPipeline(
       newItems: synResult.newItems,
       errors: synResult.errors,
     };
-    console.log(`[pipeline] Syndication ingestion:`, diagnostics.syndication);
+    ulog.info(diagnostics.syndication, "Syndication ingestion complete");
   } catch (err) {
     diagnostics.syndication = { error: err instanceof Error ? err.message : String(err) };
-    console.error("[pipeline] Syndication ingestion failed (continuing):", err);
+    ulog.error({ err }, "Syndication ingestion failed (continuing)");
   }
 
   updatePipelineStatus(userId, "ai-research");
   try {
+    ulog.info("Running AI research");
     const aiSignals = await runAiResearch(userId);
     diagnostics.aiResearch = { signalsReturned: aiSignals.length };
-    console.log(`[pipeline] AI research:`, diagnostics.aiResearch);
+    ulog.info(diagnostics.aiResearch, "AI research complete");
   } catch (err) {
     diagnostics.aiResearch = { error: err instanceof Error ? err.message : String(err) };
-    console.error("[pipeline] AI research failed (continuing):", err);
+    ulog.error({ err }, "AI research failed (continuing)");
   }
 
   updatePipelineStatus(userId, "loading-signals");
+  ulog.info("Loading candidate signals");
 
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
 
@@ -140,7 +155,7 @@ export async function runPipeline(
         return acc;
       }, {} as Record<string, number>),
     };
-    console.log(`[pipeline] Signal loading:`, diagnostics.signalLoading);
+    ulog.info(diagnostics.signalLoading, "Signal loading complete");
 
     candidateSignals = signalRows.map((r) => ({
       title: r.title,
@@ -155,24 +170,29 @@ export async function runPipeline(
     }));
   } else {
     diagnostics.signalLoading = { provenanceRows: 0 };
-    console.log(`[pipeline] Signal loading: no provenance rows for user`);
+    ulog.warn("No provenance rows for user — no signals to score");
   }
 
   if (candidateSignals.length === 0) {
-    console.error(`[pipeline] No candidate signals for user ${userId}. Full diagnostics:`, JSON.stringify(diagnostics, null, 2));
+    ulog.error({ diagnostics, elapsed: Date.now() - pipelineStart }, "No candidate signals — pipeline cannot continue");
     updatePipelineStatus(userId, "failed", { error: "No signals found. Ingestion may still be warming up — try again in a minute.", diagnostics });
     return null;
   }
 
   updatePipelineStatus(userId, "scoring");
+  ulog.info({ candidateCount: candidateSignals.length }, "Starting scoring agent");
+  const scoringStart = Date.now();
 
   const config = { ...DEFAULT_AGENT_CONFIG, ...agentConfig };
   const agentResult = await runScoringAgent(userId, candidateSignals, config);
 
   if (!agentResult || agentResult.selections.length === 0) {
+    ulog.error({ agentResult: agentResult ? "empty selections" : "null", elapsed: Date.now() - pipelineStart }, "Scoring agent returned no selections");
     updatePipelineStatus(userId, "failed", { error: "Scoring agent returned no selections" });
     return null;
   }
+
+  ulog.info({ selections: agentResult.selections.length, scoringMs: Date.now() - scoringStart, toolCalls: agentResult.toolCallLog.length, model: agentResult.modelUsed }, "Scoring complete");
 
   const selectedSignals = agentResult.selections
     .filter((s) => s.signalIndex >= 0 && s.signalIndex < candidateSignals.length)
@@ -255,7 +275,7 @@ Return valid JSON: an array of objects with {id, reason, reasonLabel, topic, con
     if (compositionFence?.[1]) rawComposition = compositionFence[1].trim();
     items = JSON.parse(rawComposition);
   } catch (err) {
-    console.error("Composition LLM failed, using raw signals:", err);
+    ulog.error({ err }, "Composition LLM failed — falling back to raw signals");
     items = selectedSignals.map((s) => ({
       id: crypto.randomUUID(),
       reason: s.reason,
@@ -287,32 +307,45 @@ Return valid JSON: an array of objects with {id, reason, reasonLabel, topic, con
     .returning();
 
   if (!briefing?.id) {
+    ulog.error("Failed to save briefing to database");
     updatePipelineStatus(userId, "failed", { error: "Failed to save briefing" });
     return null;
   }
+
+  ulog.info({ briefingId: briefing.id, itemCount: items.length, promptTokens: totalPromptTokens, completionTokens: totalCompletionTokens }, "Briefing saved");
 
   updatePipelineStatus(userId, "delivering", { briefingId: briefing.id });
   try {
     await extractAndSeedEntities(userId, items);
   } catch (err) {
-    console.error("Post-delivery entity extraction failed (non-critical):", err);
+    ulog.error({ err }, "Post-delivery entity extraction failed (non-critical)");
   }
 
-  // Deliver via email if configured
-  const deliveryChannel = profile.deliveryChannel;
+  const deliveryChannel = profile.deliveryChannel || "email";
   if (deliveryChannel === "email" && user.email && process.env.RESEND_API_KEY) {
     try {
+      ulog.info({ channel: "email", to: user.email }, "Sending briefing email");
       await sendBriefingEmail({
         toEmail: user.email,
         userName: user.name || "there",
         items,
         briefingId: briefing.id,
       });
+      ulog.info("Briefing email sent");
     } catch (err) {
-      console.error("Email delivery failed (non-critical):", err);
+      ulog.error({ err }, "Email delivery failed (non-critical)");
     }
   }
 
+  // Create reply session for channel reply processing
+  try {
+    await createReplySession(userId, briefing.id, deliveryChannel, items);
+  } catch (err) {
+    ulog.error({ err }, "Reply session creation failed (non-critical)");
+  }
+
+  const totalMs = Date.now() - pipelineStart;
+  ulog.info({ briefingId: briefing.id, totalMs, itemCount: items.length }, "Pipeline completed successfully");
   updatePipelineStatus(userId, "done", { briefingId: briefing.id });
   return briefing.id;
 }

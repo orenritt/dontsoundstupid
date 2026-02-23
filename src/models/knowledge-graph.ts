@@ -12,7 +12,10 @@ export type KnowledgeSource =
   | "industry-scan"
   | "briefing-delivered"
   | "deep-dive"
-  | "feedback-implicit";
+  | "feedback-implicit"
+  | "impress-deep-dive"
+  | "calendar-deep-dive"
+  | "rapid-fire";
 
 export interface KnowledgeEntity {
   id: string;
@@ -35,7 +38,8 @@ export type KnowledgeRelationship =
   | "uses"
   | "researches"
   | "part-of"
-  | "related-to";
+  | "related-to"
+  | "cares-about";
 
 export interface KnowledgeEdge {
   id: string;

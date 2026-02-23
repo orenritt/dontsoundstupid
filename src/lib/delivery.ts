@@ -127,15 +127,20 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-const FROM_ADDRESS = "briefing@dontsoundstupid.com";
+const FROM_ADDRESS = process.env.EMAIL_FROM || "onboarding@resend.dev";
+
+// TODO: Remove EMAIL_OVERRIDE once domain is verified in Resend (dontsoundstupid.com).
+// Without a verified domain, Resend only allows sending to the account owner email.
+const EMAIL_OVERRIDE = process.env.EMAIL_OVERRIDE || "orenrittenberg@gmail.com";
 
 export async function sendBriefingEmail(
   payload: DeliveryPayload
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const toAddress = EMAIL_OVERRIDE || payload.toEmail;
   try {
     const result = await getResend().emails.send({
       from: `Don't Sound Stupid <${FROM_ADDRESS}>`,
-      to: payload.toEmail,
+      to: toAddress,
       subject: `Your briefing — ${formatDate()}`,
       html: buildHtml(payload),
       text: buildText(payload),

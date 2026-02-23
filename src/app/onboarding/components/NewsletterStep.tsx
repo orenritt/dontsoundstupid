@@ -25,11 +25,23 @@ export function NewsletterStep({ onComplete, onBack }: NewsletterStepProps) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetch("/api/newsletters/suggestions")
-      .then((res) => (res.ok ? res.json() : { suggestions: [] }))
-      .then((data) => setSuggestions(data.suggestions || []))
-      .catch(() => setSuggestions([]))
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch("/api/newsletters/suggestions")
+        .then((res) => (res.ok ? res.json() : { suggestions: [] }))
+        .catch(() => ({ suggestions: [] })),
+      fetch("/api/newsletters/my")
+        .then((res) => (res.ok ? res.json() : { subscriptions: [] }))
+        .catch(() => ({ subscriptions: [] })),
+    ]).then(([sugData, subData]) => {
+      setSuggestions(sugData.suggestions || []);
+      const subscribedIds = (subData.subscriptions || []).map(
+        (s: { newsletter: { id: string } }) => s.newsletter.id
+      );
+      if (subscribedIds.length > 0) {
+        setAdded(new Set(subscribedIds));
+      }
+      setLoading(false);
+    });
   }, []);
 
   const toggleNewsletter = useCallback(

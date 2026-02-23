@@ -17,6 +17,7 @@ type Step =
   | "peer-review"
   | "delivery"
   | "calendar"
+  | "newsletters"
   | "complete";
 
 export async function GET() {
@@ -51,6 +52,8 @@ export async function GET() {
       conversationTranscript: userProfiles.conversationTranscript,
       rapidFireClassifications: userProfiles.rapidFireClassifications,
       deliveryChannel: userProfiles.deliveryChannel,
+      deliveryTime: userProfiles.deliveryTime,
+      deliveryTimezone: userProfiles.deliveryTimezone,
     })
     .from(userProfiles)
     .where(eq(userProfiles.userId, userId))
@@ -99,9 +102,14 @@ export async function GET() {
     userData: {
       name: user.name ?? undefined,
       photoUrl: user.linkedinPhotoUrl ?? undefined,
+      linkedinUrl: user.linkedinUrl ?? undefined,
+      conversationTranscript: profile?.conversationTranscript ?? undefined,
       contacts: contacts
         .filter((c) => c.name)
         .map((c) => ({ name: c.name!, photoUrl: c.photoUrl ?? "" })),
+      deliveryChannel: profile?.deliveryChannel ?? undefined,
+      deliveryTime: profile?.deliveryTime ?? undefined,
+      deliveryTimezone: profile?.deliveryTimezone ?? undefined,
     },
   });
 }

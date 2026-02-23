@@ -7,26 +7,31 @@ type Channel = "email" | "slack" | "sms" | "whatsapp";
 interface DeliveryStepProps {
   onComplete: () => void;
   onBack?: () => void;
+  savedChannel?: Channel;
+  savedTime?: string;
+  savedTimezone?: string;
 }
 
 const CHANNELS: { id: Channel; label: string; icon: string }[] = [
-  { id: "email", label: "Email", icon: "✉" },
-  { id: "slack", label: "Slack", icon: "💬" },
-  { id: "sms", label: "SMS", icon: "📱" },
-  { id: "whatsapp", label: "WhatsApp", icon: "📲" },
+  { id: "email", label: "Email", icon: "\u2709" },
+  { id: "slack", label: "Slack", icon: "\uD83D\uDCAC" },
+  { id: "sms", label: "SMS", icon: "\uD83D\uDCF1" },
+  { id: "whatsapp", label: "WhatsApp", icon: "\uD83D\uDCF2" },
 ];
 
-export function DeliveryStep({ onComplete, onBack }: DeliveryStepProps) {
-  const [channel, setChannel] = useState<Channel>("email");
-  const [time, setTime] = useState("07:00");
-  const [timezone, setTimezone] = useState("");
+export function DeliveryStep({ onComplete, onBack, savedChannel, savedTime, savedTimezone }: DeliveryStepProps) {
+  const [channel, setChannel] = useState<Channel>(savedChannel ?? "email");
+  const [time, setTime] = useState(savedTime ?? "07:00");
+  const [timezone, setTimezone] = useState(savedTimezone ?? "");
   const [editingTimezone, setEditingTimezone] = useState(false);
   const [customTimezone, setCustomTimezone] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
-  }, []);
+    if (!timezone) {
+      setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    }
+  }, [timezone]);
 
   const displayTimezone = editingTimezone ? customTimezone || timezone : timezone;
 

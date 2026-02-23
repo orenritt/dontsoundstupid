@@ -52,7 +52,13 @@ export type GraphActivityType =
   | "announcement"
   | "fundraising"
   | "hiring"
-  | "topic-velocity";
+  | "topic-velocity"
+  | "contact-change";
+
+export type ContactChangeSubtype =
+  | "company-change"
+  | "role-change"
+  | "focus-shift";
 
 export interface GraphSignal {
   activityType: GraphActivityType;

@@ -39,13 +39,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "already_pending" });
   }
 
+  const isReEnrichment =
+    contact.researchStatus === "completed" && contact.enrichmentVersion > 0;
+
   await db
     .update(impressContacts)
     .set({ researchStatus: "pending" })
     .where(eq(impressContacts.id, contactId));
 
-  runImpressDeepDive(contactId, session.user.id).catch((err) =>
-    console.error("Retroactive deep dive failed:", err)
+  runImpressDeepDive(contactId, session.user.id, {
+    depth: "full",
+    isReEnrichment,
+  }).catch((err) =>
+    console.error("Deep dive failed:", err)
   );
 
   return NextResponse.json({ status: "pending" });

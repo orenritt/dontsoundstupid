@@ -294,6 +294,110 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rows });
     }
 
+    case "narrative-frames": {
+      const rows = await db.execute(sql`
+        SELECT nf.*, 
+               COALESCE(jsonb_array_length(nf.related_signal_ids), 0) as signal_count
+        FROM narrative_frames nf
+        ORDER BY nf.momentum_score DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+      const bursts = await db.execute(sql`
+        SELECT tb.*
+        FROM term_bursts tb
+        ORDER BY tb.adoption_velocity DESC
+        LIMIT ${limit}
+      `);
+      const runs = await db.execute(sql`
+        SELECT nar.*
+        FROM narrative_analysis_runs nar
+        ORDER BY nar.analyzed_at DESC
+        LIMIT 20
+      `);
+      return NextResponse.json({ frames: rows, termBursts: bursts, analysisRuns: runs });
+    }
+
+    case "reply-sessions": {
+      const rows = await db.execute(sql`
+        SELECT rs.id, rs.user_id, rs.briefing_id, rs.channel_type,
+               rs.active, rs.created_at, rs.expires_at,
+               jsonb_array_length(rs.conversation_history) as message_count,
+               u.email, u.name as user_name
+        FROM reply_sessions rs
+        LEFT JOIN users u ON u.id = rs.user_id
+        ORDER BY rs.created_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+      const inbound = await db.execute(sql`
+        SELECT ir.*, u.email, u.name as user_name
+        FROM inbound_replies ir
+        LEFT JOIN users u ON u.id = ir.user_id
+        ORDER BY ir.received_at DESC
+        LIMIT ${limit}
+      `);
+      return NextResponse.json({ sessions: rows, inboundReplies: inbound });
+    }
+
+    case "calendar": {
+      const connections = await db.execute(sql`
+        SELECT cc.*, u.email, u.name as user_name
+        FROM calendar_connections cc
+        LEFT JOIN users u ON u.id = cc.user_id
+        ORDER BY cc.created_at DESC
+      `);
+      const meetingRows = await db.execute(sql`
+        SELECT m.id, m.user_id, m.title, m.start_time, m.end_time,
+               m.is_virtual, m.synced_at,
+               u.email, u.name as user_name,
+               (SELECT COUNT(*) FROM meeting_attendees ma WHERE ma.meeting_id = m.id) as attendee_count,
+               (SELECT COUNT(*) FROM meeting_intelligence mi WHERE mi.meeting_id = m.id) as has_intelligence
+        FROM meetings m
+        LEFT JOIN users u ON u.id = m.user_id
+        WHERE m.start_time > NOW() - INTERVAL '7 days'
+        ORDER BY m.start_time ASC
+        LIMIT ${limit}
+      `);
+      return NextResponse.json({ connections, meetings: meetingRows });
+    }
+
+    case "api-tokens": {
+      const tokenDefs: { key: string; label: string; required: boolean; docsUrl?: string }[] = [
+        { key: "OPENAI_API_KEY", label: "OpenAI", required: true, docsUrl: "https://platform.openai.com/api-keys" },
+        { key: "PDL_API_KEY", label: "People Data Labs", required: true, docsUrl: "https://www.peopledatalabs.com/" },
+        { key: "RESEND_API_KEY", label: "Resend (Email)", required: true, docsUrl: "https://resend.com/api-keys" },
+        { key: "NEWSAPI_AI_KEY", label: "NewsAPI.ai", required: false, docsUrl: "https://newsapi.ai/" },
+        { key: "PERPLEXITY_API_KEY", label: "Perplexity", required: false, docsUrl: "https://docs.perplexity.ai/" },
+        { key: "TAVILY_API_KEY", label: "Tavily", required: false, docsUrl: "https://tavily.com/" },
+        { key: "SERPAPI_API_KEY", label: "SerpAPI (Google Trends)", required: false, docsUrl: "https://serpapi.com/" },
+        { key: "CRON_SECRET", label: "Cron Secret", required: true },
+        { key: "DATABASE_URL", label: "Database", required: true },
+        { key: "NEXTAUTH_SECRET", label: "NextAuth Secret", required: true },
+        { key: "GOOGLE_CLIENT_ID", label: "Google Calendar (Client ID)", required: false, docsUrl: "https://console.cloud.google.com/apis/credentials" },
+        { key: "GOOGLE_CLIENT_SECRET", label: "Google Calendar (Secret)", required: false },
+        { key: "INBOUND_EMAIL_SECRET", label: "Inbound Email Webhook Secret", required: false },
+      ];
+
+      const tokens = tokenDefs.map(({ key, label, required, docsUrl }) => {
+        const raw = process.env[key];
+        const configured = !!raw && raw.length > 0;
+        let maskedPreview: string | null = null;
+        if (configured && raw) {
+          if (raw.length <= 8) {
+            maskedPreview = "****";
+          } else {
+            maskedPreview = raw.slice(0, 4) + "****" + raw.slice(-4);
+          }
+        }
+        return { key, label, required, configured, maskedPreview, docsUrl };
+      });
+
+      const configured = tokens.filter((t) => t.configured).length;
+      const missing = tokens.filter((t) => !t.configured).length;
+      const requiredMissing = tokens.filter((t) => t.required && !t.configured).length;
+
+      return NextResponse.json({ tokens, configured, missing, requiredMissing });
+    }
+
     default:
       return NextResponse.json(
         { error: `Unknown source: ${source}` },

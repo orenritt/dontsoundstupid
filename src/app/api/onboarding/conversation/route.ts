@@ -5,6 +5,9 @@ import { userProfiles, rapidFireTopics } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { chat } from "@/lib/llm";
 import { toStringArray } from "@/lib/safe-parse";
+import { createLogger } from "@/lib/logger";
+
+const log = createLogger("onboarding:conversation");
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -12,13 +15,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = session.user.id;
+  const ulog = log.child({ userId });
+
   const { transcript, inputMethod } = await request.json();
   if (!transcript || transcript.length < 20) {
+    ulog.warn({ transcriptLength: transcript?.length ?? 0 }, "Transcript too short");
     return NextResponse.json(
       { error: "Please tell us more (at least a few sentences)" },
       { status: 400 }
     );
   }
+
+  ulog.info({ inputMethod: inputMethod || "text", transcriptLength: transcript.length }, "Saving conversation transcript");
 
   await db
     .update(userProfiles)
@@ -27,15 +36,23 @@ export async function POST(request: Request) {
       conversationInputMethod: inputMethod || "text",
       updatedAt: new Date(),
     })
-    .where(eq(userProfiles.userId, session.user.id));
+    .where(eq(userProfiles.userId, userId));
 
-  // Fire off LLM parsing in the background — extract topics for rapid-fire
-  parseTranscriptAsync(session.user.id, transcript).catch(console.error);
+  ulog.info("Transcript saved, firing parseTranscriptAsync in background");
+
+  parseTranscriptAsync(userId, transcript).catch((err) => {
+    ulog.error({ err, transcriptLength: transcript.length }, "parseTranscriptAsync failed — user will be stuck on 'Analyzing' screen");
+  });
 
   return NextResponse.json({ ok: true });
 }
 
 async function parseTranscriptAsync(userId: string, transcript: string) {
+  const ulog = log.child({ userId, op: "parseTranscript" });
+  const start = Date.now();
+
+  ulog.info({ transcriptLength: transcript.length }, "Starting transcript parsing via LLM");
+
   const response = await chat([
     {
       role: "system",
@@ -57,11 +74,23 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
     },
   ], { model: "gpt-4o-mini", temperature: 0.3 });
 
+  const llmMs = Date.now() - start;
+  ulog.info({ llmMs, responseLength: response.content.length, promptTokens: response.promptTokens, completionTokens: response.completionTokens }, "LLM response received");
+
   try {
     let raw = response.content.trim();
     const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
     if (fenceMatch?.[1]) raw = fenceMatch[1].trim();
     const parsed = JSON.parse(raw);
+
+    const topicCount = Array.isArray(parsed.rapidFireTopics) ? parsed.rapidFireTopics.length : 0;
+    ulog.info({
+      initiatives: toStringArray(parsed.initiatives).length,
+      concerns: toStringArray(parsed.concerns).length,
+      topics: toStringArray(parsed.topics).length,
+      knowledgeGaps: toStringArray(parsed.knowledgeGaps).length,
+      rapidFireTopicCount: topicCount,
+    }, "Parsed transcript successfully");
 
     await db
       .update(userProfiles)
@@ -75,6 +104,8 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
         updatedAt: new Date(),
       })
       .where(eq(userProfiles.userId, userId));
+
+    ulog.info("Updated user profile with parsed data");
 
     const existingTopics = await db
       .select({ id: rapidFireTopics.id })
@@ -90,14 +121,21 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
           ready: true,
         })
         .where(eq(rapidFireTopics.userId, userId));
+      ulog.info({ topicCount }, "Updated existing rapid-fire topics row → ready=true");
     } else {
       await db.insert(rapidFireTopics).values({
         userId,
         topics: parsed.rapidFireTopics || [],
         ready: true,
       });
+      ulog.info({ topicCount }, "Inserted new rapid-fire topics row → ready=true");
     }
+
+    const totalMs = Date.now() - start;
+    ulog.info({ totalMs }, "parseTranscriptAsync completed successfully");
   } catch (e) {
-    console.error("Failed to parse LLM response:", e);
+    const totalMs = Date.now() - start;
+    ulog.error({ err: e, totalMs, rawResponseSnippet: response.content.slice(0, 500) }, "Failed to parse LLM response — rapid-fire topics will NOT be ready");
+    throw e;
   }
 }

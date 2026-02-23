@@ -12,7 +12,9 @@ import { toStringArray } from "../safe-parse";
 import { searchPerplexity } from "./perplexity-client";
 import { searchTavily } from "./tavily-client";
 import { deriveEnrichedResearchQueries } from "./query-derivation";
+import { createLogger } from "../logger";
 
+const log = createLogger("ai-research");
 const MAX_PERPLEXITY_QUERIES = 5;
 const MAX_TAVILY_QUERIES = 10;
 
@@ -24,6 +26,10 @@ interface RawSignal {
 }
 
 export async function runAiResearch(userId: string): Promise<RawSignal[]> {
+  const ulog = log.child({ userId });
+  const start = Date.now();
+  ulog.info("Starting AI research");
+
   const [user] = await db
     .select()
     .from(users)
@@ -35,7 +41,10 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
     .where(eq(userProfiles.userId, userId))
     .limit(1);
 
-  if (!user || !profile) return [];
+  if (!user || !profile) {
+    ulog.warn({ hasUser: !!user, hasProfile: !!profile }, "User/profile not found — returning empty");
+    return [];
+  }
 
   const contacts = await db
     .select()
@@ -59,6 +68,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
     .filter((p) => p.confirmed !== false)
     .map((p) => p.name);
 
+  ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length }, "Deriving research queries");
   const queries = await deriveEnrichedResearchQueries({
     role: user.title || "professional",
     company: user.company || "their company",
@@ -78,6 +88,8 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
   );
   const cappedTavily = queries.tavilyQueries.slice(0, MAX_TAVILY_QUERIES);
 
+  ulog.info({ perplexityQueries: cappedPerplexity.length, tavilyQueries: cappedTavily.length, totalDerived: { perplexity: queries.perplexityQueries.length, tavily: queries.tavilyQueries.length } }, "Research queries derived");
+
   const [perplexityResults, tavilyResults] = await Promise.all([
     Promise.all(
       cappedPerplexity.map(async (query) => {
@@ -90,7 +102,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
             citations: result.citations,
           };
         } catch (err) {
-          console.error(`Perplexity query failed (non-critical): ${query}`, err);
+          ulog.error({ err, query }, "Perplexity query failed (non-critical)");
           return null;
         }
       })
@@ -106,7 +118,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
           if (!result) return null;
           return { query, results: result.results };
         } catch (err) {
-          console.error(`Tavily query failed (non-critical): ${query}`, err);
+          ulog.error({ err, query }, "Tavily query failed (non-critical)");
           return null;
         }
       })
@@ -177,9 +189,10 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
           .onConflictDoNothing();
       }
     } catch (err) {
-      console.error("Failed to persist AI research signal:", err);
+      ulog.error({ err, signalUrl: sig.sourceUrl }, "Failed to persist AI research signal");
     }
   }
 
+  ulog.info({ totalSignals: rawSignals.length, persisted: rawSignals.filter(s => s.sourceUrl).length, totalMs: Date.now() - start }, "AI research complete");
   return rawSignals;
 }

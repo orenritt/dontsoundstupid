@@ -39,7 +39,12 @@ const STEP_ORDER: Step[] = [
 interface UserData {
   name?: string;
   photoUrl?: string;
+  linkedinUrl?: string;
+  conversationTranscript?: string;
   contacts: { name: string; photoUrl: string }[];
+  deliveryChannel?: string;
+  deliveryTime?: string;
+  deliveryTimezone?: string;
 }
 
 export default function OnboardingPage() {
@@ -63,7 +68,12 @@ export default function OnboardingPage() {
           setUserData({
             name: data.userData.name,
             photoUrl: data.userData.photoUrl,
+            linkedinUrl: data.userData.linkedinUrl,
+            conversationTranscript: data.userData.conversationTranscript,
             contacts: data.userData.contacts ?? [],
+            deliveryChannel: data.userData.deliveryChannel,
+            deliveryTime: data.userData.deliveryTime,
+            deliveryTimezone: data.userData.deliveryTimezone,
           });
         }
       })
@@ -207,6 +217,9 @@ export default function OnboardingPage() {
             transition={{ duration: 0.4 }}
           >
             <LinkedInStep
+              initialUrl={userData.linkedinUrl}
+              initialName={userData.name}
+              initialPhoto={userData.photoUrl}
               onComplete={(data) => {
                 setUserData((prev) => ({
                   ...prev,
@@ -230,7 +243,9 @@ export default function OnboardingPage() {
             <ConversationStep
               userName={userData.name}
               userPhoto={userData.photoUrl}
+              savedTranscript={userData.conversationTranscript}
               onComplete={() => goNext("impress")}
+              onBack={goBack}
             />
           </motion.div>
         )}
@@ -245,10 +260,12 @@ export default function OnboardingPage() {
           >
             <ImpressListStep
               userPhoto={userData.photoUrl}
+              initialContacts={userData.contacts}
               onComplete={(contacts) => {
                 setUserData((prev) => ({ ...prev, contacts }));
                 goNext("rapid-fire");
               }}
+              onBack={goBack}
             />
           </motion.div>
         )}
@@ -294,6 +311,9 @@ export default function OnboardingPage() {
             <DeliveryStep
               onComplete={() => goNext("calendar")}
               onBack={goBack}
+              savedChannel={userData.deliveryChannel as "email" | "slack" | "sms" | "whatsapp" | undefined}
+              savedTime={userData.deliveryTime}
+              savedTimezone={userData.deliveryTimezone}
             />
           </motion.div>
         )}

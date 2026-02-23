@@ -11,6 +11,8 @@ interface Contact {
 interface ImpressListStepProps {
   userPhoto?: string;
   onComplete: (contacts: Contact[]) => void;
+  onBack?: () => void;
+  initialContacts?: Contact[];
 }
 
 const MAX_SLOTS = 5;
@@ -56,8 +58,8 @@ function SmallOrb({ photoUrl, name, onRemove }: { photoUrl?: string; name?: stri
   );
 }
 
-export function ImpressListStep({ userPhoto, onComplete }: ImpressListStepProps) {
-  const [contacts, setContacts] = useState<Contact[]>([]);
+export function ImpressListStep({ userPhoto, onComplete, onBack, initialContacts }: ImpressListStepProps) {
+  const [contacts, setContacts] = useState<Contact[]>(initialContacts ?? []);
   const [addingIndex, setAddingIndex] = useState<number | null>(null);
   const [urlInput, setUrlInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -113,6 +115,17 @@ export function ImpressListStep({ userPhoto, onComplete }: ImpressListStepProps)
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="fixed top-4 left-4 z-50 text-xs text-white/30 hover:text-white/60 transition-colors"
+        >
+          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 12L6 8l4-4" />
+          </svg>
+        </button>
+      )}
+
       {/* Main orb cluster (small, scaled, at top) */}
       <motion.div
         className="mb-8"

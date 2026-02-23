@@ -1,10 +1,16 @@
 import OpenAI from "openai";
+import { createLogger } from "./logger";
+
+const log = createLogger("llm");
 
 export type LlmProvider = "openai" | "anthropic";
 
 let _openai: OpenAI | null = null;
 function getOpenAI(): OpenAI {
   if (!_openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      log.error("OPENAI_API_KEY is not set — LLM calls will fail");
+    }
     _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   }
   return _openai;
@@ -36,23 +42,38 @@ export async function chat(
   const tokenLimit = options.maxTokens ?? 2048;
   const useNewParam = MODELS_REQUIRING_MAX_COMPLETION_TOKENS.has(model) || model.startsWith("gpt-5");
 
-  const response = await getOpenAI().chat.completions.create({
-    model,
-    messages,
-    temperature: options.temperature ?? 0.7,
-    ...(useNewParam
-      ? { max_completion_tokens: tokenLimit }
-      : { max_tokens: tokenLimit }),
-  });
+  const start = Date.now();
+  log.debug({ model, messageCount: messages.length, tokenLimit }, "LLM chat request");
 
-  const choice = response.choices[0];
-  return {
-    content: choice?.message?.content ?? "",
-    promptTokens: response.usage?.prompt_tokens ?? 0,
-    completionTokens: response.usage?.completion_tokens ?? 0,
-    model,
-    provider: "openai",
-  };
+  try {
+    const response = await getOpenAI().chat.completions.create({
+      model,
+      messages,
+      temperature: options.temperature ?? 0.7,
+      ...(useNewParam
+        ? { max_completion_tokens: tokenLimit }
+        : { max_tokens: tokenLimit }),
+    });
+
+    const choice = response.choices[0];
+    const ms = Date.now() - start;
+    const promptTokens = response.usage?.prompt_tokens ?? 0;
+    const completionTokens = response.usage?.completion_tokens ?? 0;
+
+    log.debug({ model, ms, promptTokens, completionTokens, finishReason: choice?.finish_reason }, "LLM chat response");
+
+    return {
+      content: choice?.message?.content ?? "",
+      promptTokens,
+      completionTokens,
+      model,
+      provider: "openai",
+    };
+  } catch (err) {
+    const ms = Date.now() - start;
+    log.error({ err, model, ms, messageCount: messages.length }, "LLM chat call FAILED");
+    throw err;
+  }
 }
 
 export async function embed(

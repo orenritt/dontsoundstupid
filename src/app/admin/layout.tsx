@@ -17,6 +17,7 @@ const NAV_SECTIONS = [
       { label: "Syndication Feeds", href: "/admin/syndication" },
       { label: "Newsletters", href: "/admin/newsletters" },
       { label: "Email Forwards", href: "/admin/email-forwards" },
+      { label: "Narratives", href: "/admin/narratives" },
     ],
   },
   {
@@ -26,6 +27,8 @@ const NAV_SECTIONS = [
       { label: "Knowledge Graph", href: "/admin/knowledge" },
       { label: "Feedback", href: "/admin/feedback" },
       { label: "Provenance", href: "/admin/provenance" },
+      { label: "Reply Sessions", href: "/admin/replies" },
+      { label: "Calendar", href: "/admin/calendar" },
     ],
   },
   {
@@ -35,6 +38,7 @@ const NAV_SECTIONS = [
       { label: "Pipeline Runs", href: "/admin/pipeline" },
       { label: "Impress Contacts", href: "/admin/impress" },
       { label: "Peer Orgs", href: "/admin/peers" },
+      { label: "API Tokens", href: "/admin/api-tokens" },
     ],
   },
 ];

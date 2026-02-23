@@ -7,6 +7,8 @@ interface ConversationStepProps {
   userName?: string;
   userPhoto?: string;
   onComplete: () => void;
+  onBack?: () => void;
+  savedTranscript?: string;
 }
 
 const PROMPTS = [
@@ -73,17 +75,33 @@ function MicIcon({ className = "h-8 w-8" }: { className?: string }) {
   );
 }
 
-export function ConversationStep({ userPhoto, onComplete }: ConversationStepProps) {
+export function ConversationStep({ userPhoto, onComplete, onBack, savedTranscript }: ConversationStepProps) {
   const [promptIndex, setPromptIndex] = useState(0);
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [completedPairs, setCompletedPairs] = useState<{ question: string; answer: string }[]>([]);
-  const [phase, setPhase] = useState<Phase>("answering");
+  const [phase, setPhase] = useState<Phase>(savedTranscript ? "done" : "answering");
   const [inputMode, setInputMode] = useState<InputMode>("voice");
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usedVoice, setUsedVoice] = useState(false);
   const [livePartial, setLivePartial] = useState("");
+  const [alreadySaved, setAlreadySaved] = useState(!!savedTranscript);
+
+  useEffect(() => {
+    if (savedTranscript && completedPairs.length === 0) {
+      const pairs = savedTranscript.split("\n\n").map((block) => {
+        const lines = block.split("\n");
+        const question = lines[0]?.replace(/^Q:\s*/, "") ?? "";
+        const answer = lines.slice(1).map(l => l.replace(/^A:\s*/, "")).join("\n");
+        return { question, answer };
+      }).filter(p => p.question && p.answer);
+      if (pairs.length > 0) {
+        setCompletedPairs(pairs);
+        setPromptIndex(pairs.length);
+      }
+    }
+  }, [savedTranscript, completedPairs.length]);
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const wantRecordingRef = useRef(false);
@@ -114,7 +132,7 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
-    recognition.maxAlternatives = 1;
+    (recognition as any).maxAlternatives = 1;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let finalText = "";
@@ -163,7 +181,7 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
           nextRecognition.continuous = false;
           nextRecognition.interimResults = true;
           nextRecognition.lang = "en-US";
-          nextRecognition.maxAlternatives = 1;
+          (nextRecognition as any).maxAlternatives = 1;
           nextRecognition.onresult = recognition.onresult;
           nextRecognition.onerror = recognition.onerror;
           nextRecognition.onend = recognition.onend;
@@ -239,6 +257,11 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
   }, [stopRecording]);
 
   const submitAll = async () => {
+    if (alreadySaved) {
+      onComplete();
+      return;
+    }
+
     const allPairs = completedPairs;
     if (allPairs.length === 0 || loading) return;
 
@@ -258,6 +281,7 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Something went wrong");
+      setAlreadySaved(true);
       onComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
@@ -270,6 +294,18 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      {/* Back button for conversation step */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="fixed top-4 left-4 z-50 text-xs text-white/30 hover:text-white/60 transition-colors"
+        >
+          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M10 12L6 8l4-4" />
+          </svg>
+        </button>
+      )}
+
       {/* Orbs */}
       <div className="relative mb-8 flex flex-col items-center gap-4">
         <motion.div
@@ -511,10 +547,10 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
             </div>
 
             <h1 className="mb-2 text-center text-[24px] font-medium text-white">
-              That was great. I&apos;ve got a lot to work with.
+              {alreadySaved ? "Your answers are saved." : "That was great. I\u2019ve got a lot to work with."}
             </h1>
             <p className="mb-8 text-center text-base text-gray-500">
-              Let&apos;s keep going.
+              {alreadySaved ? "Continue or start fresh below." : "Let\u2019s keep going."}
             </p>
 
             {error && <p className="mb-4 text-sm text-red-400">{error}</p>}
@@ -529,6 +565,21 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
             >
               {loading ? "Saving…" : "Next"}
             </motion.button>
+
+            {alreadySaved && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCompletedPairs([]);
+                  setPromptIndex(0);
+                  setPhase("answering");
+                  setAlreadySaved(false);
+                }}
+                className="mt-4 text-sm text-white/30 hover:text-white/60 transition-colors"
+              >
+                Start fresh
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
