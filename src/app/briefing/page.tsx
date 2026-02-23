@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -21,23 +21,59 @@ interface Briefing {
   generatedAt: string;
 }
 
+interface PipelineProgress {
+  running: boolean;
+  stage?: string;
+  message?: string;
+  elapsedMs?: number;
+  briefingId?: string | null;
+  error?: string | null;
+}
+
 type PageState =
   | "loading"
   | "needs-onboarding"
   | "no-briefing"
+  | "generating"
   | "has-briefing";
+
+const STAGE_ORDER = [
+  "starting",
+  "loading-profile",
+  "loading-signals",
+  "scoring",
+  "composing",
+  "saving",
+  "delivering",
+  "done",
+];
+
+function stageProgress(stage?: string): number {
+  if (!stage) return 0;
+  const idx = STAGE_ORDER.indexOf(stage);
+  if (idx < 0) return 0;
+  return Math.round(((idx + 1) / STAGE_ORDER.length) * 100);
+}
+
+function formatElapsed(ms?: number): string {
+  if (!ms) return "";
+  const secs = Math.floor(ms / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
 
 export default function BriefingPage() {
   const router = useRouter();
   const [pageState, setPageState] = useState<PageState>("loading");
   const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [progress, setProgress] = useState<PipelineProgress | null>(null);
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Record<string, string>>(
     {}
   );
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<string[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToasts((prev) => [...prev, message]);
@@ -48,6 +84,9 @@ export default function BriefingPage() {
 
   useEffect(() => {
     loadPage();
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
   }, []);
 
   async function loadPage() {
@@ -84,32 +123,51 @@ export default function BriefingPage() {
     }
   }
 
+  function startPolling() {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch("/api/pipeline/status");
+        if (!res.ok) return;
+        const data: PipelineProgress = await res.json();
+        setProgress(data);
+
+        if (data.stage === "done") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          await loadPage();
+        } else if (data.stage === "failed") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setGenerateError(data.error || "Pipeline failed. Please try again.");
+          setPageState("no-briefing");
+          setProgress(null);
+        }
+      } catch {
+        // polling failure is non-critical, just retry next interval
+      }
+    }, 1500);
+  }
+
   async function triggerPipeline() {
-    setGenerating(true);
+    setPageState("generating");
     setGenerateError(null);
-    // #region agent log
-    console.log('[DEBUG-b7450b] triggerPipeline-start', { currentPageState: pageState });
-    // #endregion
+    setProgress({ running: true, stage: "starting", message: "Starting pipeline..." });
+
     try {
       const res = await fetch("/api/pipeline/trigger", { method: "POST" });
-      // #region agent log
-      console.log('[DEBUG-b7450b] triggerPipeline-response', { status: res.status, ok: res.ok });
-      // #endregion
       if (!res.ok) {
         const data = await res.json();
-        setGenerateError(
-          data.error || "Failed to generate briefing. Make sure your OpenAI API key is configured."
-        );
+        setGenerateError(data.error || "Failed to start pipeline.");
+        setPageState("no-briefing");
+        setProgress(null);
         return;
       }
-      await loadPage();
-    } catch (err) {
-      // #region agent log
-      console.log('[DEBUG-b7450b] triggerPipeline-catch', { error: err instanceof Error ? err.message : String(err) });
-      // #endregion
+      startPolling();
+    } catch {
       setGenerateError("Something went wrong. Please try again.");
-    } finally {
-      setGenerating(false);
+      setPageState("no-briefing");
+      setProgress(null);
     }
   }
 
@@ -188,6 +246,41 @@ export default function BriefingPage() {
     );
   }
 
+  if (pageState === "generating") {
+    const pct = stageProgress(progress?.stage);
+    const elapsed = formatElapsed(progress?.elapsedMs);
+
+    return (
+      <div className="min-h-screen bg-[#fafafa] flex items-center justify-center px-6">
+        <div className="text-center max-w-sm w-full">
+          <div className="mb-6">
+            <div className="w-10 h-10 mx-auto mb-4 border-2 border-gray-200 border-t-gray-900 rounded-full animate-spin" />
+            <h1 className="text-lg font-semibold text-gray-900 mb-1">
+              Building your briefing
+            </h1>
+            <p className="text-gray-500 text-sm">
+              {progress?.message || "Starting pipeline..."}
+            </p>
+          </div>
+
+          <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3">
+            <motion.div
+              className="bg-gray-900 h-1.5 rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+            />
+          </div>
+
+          <div className="flex justify-between text-xs text-gray-400">
+            <span>{pct}%</span>
+            {elapsed && <span>{elapsed}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (pageState === "no-briefing") {
     return (
       <div className="min-h-screen bg-[#fafafa] flex items-center justify-center px-6">
@@ -204,10 +297,9 @@ export default function BriefingPage() {
           )}
           <button
             onClick={triggerPipeline}
-            disabled={generating}
-            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
           >
-            {generating ? "Generating..." : "Generate My Briefing"}
+            Generate My Briefing
           </button>
         </div>
       </div>
@@ -309,15 +401,16 @@ export default function BriefingPage() {
           </AnimatePresence>
         </div>
 
-        <div className="mt-8 text-center">
-          <button
-            onClick={triggerPipeline}
-            disabled={generating}
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-          >
-            {generating ? "Regenerating..." : "Regenerate briefing"}
-          </button>
-        </div>
+        {pageState === "has-briefing" && (
+          <div className="mt-8 text-center">
+            <button
+              onClick={triggerPipeline}
+              className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Regenerate briefing
+            </button>
+          </div>
+        )}
       </div>
 
       <AnimatePresence>

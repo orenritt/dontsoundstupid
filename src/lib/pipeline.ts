@@ -5,6 +5,8 @@ import { chat } from "./llm";
 import { runScoringAgent, DEFAULT_AGENT_CONFIG } from "./scoring-agent";
 import type { AgentScoringConfig } from "../models/relevance";
 import { sendBriefingEmail } from "./delivery";
+import { extractAndSeedEntities } from "./briefing-entity-extraction";
+import { updatePipelineStatus } from "./pipeline-status";
 
 interface RawSignal {
   title: string;
@@ -17,6 +19,8 @@ export async function runPipeline(
   userId: string,
   agentConfig?: Partial<AgentScoringConfig>
 ): Promise<string | null> {
+  updatePipelineStatus(userId, "loading-profile");
+
   const [user] = await db
     .select()
     .from(users)
@@ -28,9 +32,13 @@ export async function runPipeline(
     .where(eq(userProfiles.userId, userId))
     .limit(1);
 
-  if (!user || !profile) return null;
+  if (!user || !profile) {
+    updatePipelineStatus(userId, "failed", { error: "User or profile not found" });
+    return null;
+  }
 
-  // Read pre-ingested signals from the signals table for this user
+  updatePipelineStatus(userId, "loading-signals");
+
   const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
 
   const userProvenanceRows = await db
@@ -74,15 +82,20 @@ export async function runPipeline(
     }));
   }
 
-  if (candidateSignals.length === 0) return null;
+  if (candidateSignals.length === 0) {
+    updatePipelineStatus(userId, "failed", { error: "No candidate signals found" });
+    return null;
+  }
 
-  // Agent-based selection — the scoring agent evaluates the full
-  // candidate pool against the user's profile, knowledge graph, feedback
-  // history, and peer context using tools for deeper analysis.
+  updatePipelineStatus(userId, "scoring");
+
   const config = { ...DEFAULT_AGENT_CONFIG, ...agentConfig };
   const agentResult = await runScoringAgent(userId, candidateSignals, config);
 
-  if (!agentResult || agentResult.selections.length === 0) return null;
+  if (!agentResult || agentResult.selections.length === 0) {
+    updatePipelineStatus(userId, "failed", { error: "Scoring agent returned no selections" });
+    return null;
+  }
 
   const selectedSignals = agentResult.selections
     .filter((s) => s.signalIndex >= 0 && s.signalIndex < candidateSignals.length)
@@ -93,9 +106,12 @@ export async function runPipeline(
       attribution: selection.attribution,
     }));
 
-  if (selectedSignals.length === 0) return null;
+  if (selectedSignals.length === 0) {
+    updatePipelineStatus(userId, "failed", { error: "No valid signals after filtering" });
+    return null;
+  }
 
-  // Compose briefing — LLM formats agent-selected signals into dry bullets
+  updatePipelineStatus(userId, "composing");
   let items: {
     id: string;
     reason: string;
@@ -163,7 +179,8 @@ For each signal, preserve the reason/reasonLabel, weave attribution into the bod
     }));
   }
 
-  // Save briefing with agent metadata
+  updatePipelineStatus(userId, "saving");
+
   const totalPromptTokens =
     compositionPromptTokens + agentResult.promptTokens;
   const totalCompletionTokens =
@@ -180,7 +197,17 @@ For each signal, preserve the reason/reasonLabel, weave attribution into the bod
     })
     .returning();
 
-  if (!briefing?.id) return null;
+  if (!briefing?.id) {
+    updatePipelineStatus(userId, "failed", { error: "Failed to save briefing" });
+    return null;
+  }
+
+  updatePipelineStatus(userId, "delivering", { briefingId: briefing.id });
+  try {
+    await extractAndSeedEntities(userId, items);
+  } catch (err) {
+    console.error("Post-delivery entity extraction failed (non-critical):", err);
+  }
 
   // Deliver via email if configured
   const deliveryChannel = profile.deliveryChannel;
@@ -197,5 +224,6 @@ For each signal, preserve the reason/reasonLabel, weave attribution into the bod
     }
   }
 
+  updatePipelineStatus(userId, "done", { briefingId: briefing.id });
   return briefing.id;
 }
