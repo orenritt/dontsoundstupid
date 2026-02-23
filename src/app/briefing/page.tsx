@@ -440,7 +440,7 @@ export default function BriefingPage() {
             <p className="text-red-500 text-sm mb-4">{generateError}</p>
           )}
           <button
-            onClick={triggerPipeline}
+            onClick={() => triggerPipeline()}
             className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
           >
             Generate My Briefing
@@ -599,7 +599,7 @@ export default function BriefingPage() {
         {pageState === "has-briefing" && (
           <div className="mt-8 text-center">
             <button
-              onClick={triggerPipeline}
+              onClick={() => triggerPipeline()}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
             >
               Regenerate briefing
