@@ -1,0 +1,9 @@
+---
+description: Deployment and CI requirements for the project
+alwaysApply: true
+---
+
+# Deployment
+
+- All deployments happen via the Railway CLI (`railway up`). Never deploy through the Railway dashboard or any other method.
+- All tests must pass before deploying. Run `npm test` (or the project's test command) and confirm a clean result before triggering a deploy.

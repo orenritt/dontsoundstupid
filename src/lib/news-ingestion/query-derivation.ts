@@ -9,6 +9,7 @@ import {
 } from "../schema";
 import { eq, and } from "drizzle-orm";
 import type { NewsQueryDerivedFrom } from "../../models/news-ingestion";
+import type { ContentUniverse } from "../../models/content-universe";
 import { toStringArray } from "../safe-parse";
 
 interface DerivedQuery {
@@ -134,6 +135,17 @@ async function deriveFromTopics(userId: string): Promise<DerivedQuery[]> {
     .limit(1);
 
   if (!profile) return [];
+
+  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+
+  if (contentUniverse) {
+    return contentUniverse.coreTopics.map((entry) => ({
+      queryText: `"${entry}"`,
+      derivedFrom: "industry" as const,
+      profileReference: entry,
+      geographicFilters: [],
+    }));
+  }
 
   const topics = toStringArray(profile.parsedTopics);
   return topics.map((topic) => ({

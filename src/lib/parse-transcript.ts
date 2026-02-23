@@ -42,11 +42,12 @@ export async function parseTranscriptAsync(userId: string, transcript: string) {
 Given a user's description of their work, extract:
 1. initiatives: what they're working on
 2. concerns: challenges they face
-3. topics: areas they need to stay sharp on
-4. knowledgeGaps: things they wish they knew more about
-5. expertAreas: things they're confident about
-6. weakAreas: things they explicitly lack knowledge in
-7. rapidFireTopics: 8-15 topics/entities to present for quick classification, each with a one-line context
+3. topics: intersectional niche descriptors — multi-word PHRASES that capture WHERE the user sits at the intersection of their fields. Do NOT generalize to parent categories. If the user works at the intersection of two fields, the topic IS the intersection, not each field independently. For example, if someone describes working on "nature-based insurance for coral reefs", the topic is "nature-based insurance for coral reef restoration", NOT "insurtech" or "climate risk" as separate topics.
+4. contextTerms: individual terms and keywords that provide context about the user's domain but should never be used alone as search queries. Examples: "insurance", "coral reefs", "climate risk".
+5. knowledgeGaps: things they wish they knew more about
+6. expertAreas: things they're confident about
+7. weakAreas: things they explicitly lack knowledge in
+8. rapidFireTopics: 8-15 topics/entities to present for quick classification, each with a one-line context
 
 Return valid JSON with these exact keys. rapidFireTopics should be an array of {topic, context} objects.`,
       },
@@ -69,6 +70,7 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
       initiatives: toStringArray(parsed.initiatives).length,
       concerns: toStringArray(parsed.concerns).length,
       topics: toStringArray(parsed.topics).length,
+      contextTerms: toStringArray(parsed.contextTerms).length,
       knowledgeGaps: toStringArray(parsed.knowledgeGaps).length,
       rapidFireTopicCount: topicCount,
     }, "Parsed transcript successfully");
@@ -82,6 +84,7 @@ Return valid JSON with these exact keys. rapidFireTopics should be an array of {
         parsedKnowledgeGaps: toStringArray(parsed.knowledgeGaps),
         parsedExpertAreas: toStringArray(parsed.expertAreas),
         parsedWeakAreas: toStringArray(parsed.weakAreas),
+        contextTerms: toStringArray(parsed.contextTerms),
         updatedAt: new Date(),
       })
       .where(eq(userProfiles.userId, userId));

@@ -13,6 +13,7 @@ import { searchPerplexity } from "./perplexity-client";
 import { searchTavily } from "./tavily-client";
 import { deriveEnrichedResearchQueries } from "./query-derivation";
 import { createLogger } from "../logger";
+import type { ContentUniverse } from "../../models/content-universe";
 
 const log = createLogger("ai-research");
 const MAX_PERPLEXITY_QUERIES = 5;
@@ -68,7 +69,9 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
     .filter((p) => p.confirmed !== false)
     .map((p) => p.name);
 
-  ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length }, "Deriving research queries");
+  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+
+  ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length, hasContentUniverse: !!contentUniverse }, "Deriving research queries");
   const queries = await deriveEnrichedResearchQueries({
     role: user.title || "professional",
     company: user.company || "their company",
@@ -78,7 +81,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
     knowledgeGaps: toStringArray(profile.parsedKnowledgeGaps),
     impressListCompanies: impressCompanies,
     peerOrgNames,
-  });
+  }, contentUniverse);
 
   const systemContext = `You are a research assistant for a ${user.title || "professional"} at ${user.company || "a company"}. Provide concise, factual intelligence. Focus on the last 24-48 hours of developments.`;
 

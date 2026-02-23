@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
+import type { ContentUniverse } from "../models/content-universe";
 
 export const onboardingStatusEnum = pgEnum("onboarding_status", [
   "not_started",
@@ -54,6 +55,8 @@ export const userProfiles = pgTable("user_profiles", {
   rapidFireClassifications: jsonb("rapid_fire_classifications")
     .$type<{ topic: string; context: string; response: string }[]>()
     .default([]),
+  contextTerms: jsonb("context_terms").$type<string[]>(),
+  contentUniverse: jsonb("content_universe").$type<ContentUniverse>(),
   deliveryChannel: text("delivery_channel"),
   deliveryTime: text("delivery_time"),
   deliveryTimezone: text("delivery_timezone"),

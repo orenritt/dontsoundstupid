@@ -33,7 +33,7 @@ const FAKE_USER = {
 const FAKE_PROFILE = {
   userId: "test-live-001",
   conversationTranscript: "I work in insurance technology...",
-  parsedTopics: ["insurtech", "climate risk", "parametric insurance", "AI underwriting"],
+  parsedTopics: ["parametric insurance for climate risk modeling", "AI-powered underwriting for specialty insurance", "catastrophe bond structuring"],
   parsedInitiatives: ["digital transformation", "AI integration", "parametric product launch"],
   parsedConcerns: ["regulatory compliance", "market volatility", "talent retention"],
   parsedExpertAreas: ["underwriting", "reinsurance", "catastrophe modeling"],
@@ -47,6 +47,25 @@ const FAKE_PROFILE = {
   deliveryChannel: "web",
   deliveryTime: null,
   deliveryTimezone: null,
+  contentUniverse: {
+    definition: "Insurance technology professional specializing in parametric insurance for climate risk, AI-powered underwriting for specialty lines, and catastrophe bond structuring.",
+    coreTopics: [
+      "parametric insurance for climate risk modeling",
+      "AI-powered underwriting for specialty insurance",
+      "catastrophe bond structuring and pricing",
+    ],
+    exclusions: [
+      "general fintech",
+      "crypto insurance",
+      "embedded insurance platforms",
+      "digital claims processing",
+      "life and health insurance",
+    ],
+    seismicThreshold: "Only if a top-10 global insurer/reinsurer makes a major move in parametric climate products or AI underwriting, or a regulatory body creates rules specifically for parametric insurance triggers.",
+    generatedAt: "2026-02-23T12:00:00.000Z",
+    generatedFrom: ["hash:test", "parsedTopics", "parsedInitiatives"],
+    version: 1,
+  },
 };
 
 const FAKE_SIGNALS = [

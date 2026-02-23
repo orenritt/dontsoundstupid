@@ -8,6 +8,7 @@ import { runPipeline } from "@/lib/pipeline";
 import { smartDiscoverFeeds, deriveFeedsForUser } from "@/lib/syndication";
 import { deriveNewsQueries, pollNewsQueries } from "@/lib/news-ingestion";
 import { runAiResearch } from "@/lib/ai-research";
+import { generateContentUniverse } from "@/lib/content-universe";
 import { updatePipelineStatus } from "@/lib/pipeline-status";
 import { createLogger } from "@/lib/logger";
 
@@ -19,6 +20,11 @@ async function runPostOnboardingPipeline(userId: string) {
 
   try {
     updatePipelineStatus(userId, "loading-profile");
+
+    generateContentUniverse(userId).catch((err) =>
+      ulog.error({ err }, "Content universe generation failed (non-critical)")
+    );
+
     ulog.info("Seeding knowledge graph");
     await seedKnowledgeGraph(userId);
     ulog.info({ elapsed: Date.now() - start }, "Knowledge graph seeded");

@@ -74,7 +74,7 @@ export const FIXTURES = {
   profile: {
     userId: "550e8400-e29b-41d4-a716-446655440000",
     conversationTranscript: "I work in insurance technology...",
-    parsedTopics: ["insurtech", "climate risk", "parametric insurance"],
+    parsedTopics: ["parametric insurance for climate risk", "insurtech AI underwriting applications"],
     parsedInitiatives: ["digital transformation", "AI integration"],
     parsedConcerns: ["regulatory compliance", "market volatility"],
     parsedExpertAreas: ["underwriting", "reinsurance"],
@@ -84,6 +84,26 @@ export const FIXTURES = {
       { topic: "insurtech", context: "", response: "know-tons" },
       { topic: "DeFi", context: "", response: "need-more" },
     ],
+    contentUniverse: {
+      definition: "Insurance technology professional focused on parametric insurance products for climate risk and AI-powered underwriting models for specialty lines.",
+      coreTopics: [
+        "parametric insurance for climate risk",
+        "AI-powered underwriting for specialty insurance",
+        "catastrophe modeling and risk transfer",
+      ],
+      exclusions: [
+        "general fintech",
+        "crypto insurance",
+        "embedded insurance platforms",
+        "digital claims processing",
+        "life and health insurance",
+        "DeFi protocols",
+      ],
+      seismicThreshold: "Only if a top-10 global insurer/reinsurer makes a major move in parametric climate products or AI underwriting, or a regulatory body creates rules specifically affecting parametric insurance triggers.",
+      generatedAt: "2026-02-23T12:00:00.000Z",
+      generatedFrom: ["hash:test", "parsedTopics", "parsedInitiatives"],
+      version: 1,
+    },
   },
 
   briefingItem: {

@@ -9,6 +9,7 @@ import {
 } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { parseTranscriptAsync } from "@/lib/parse-transcript";
+import { generateContentUniverse } from "@/lib/content-universe";
 
 export async function GET() {
   const session = await auth();
@@ -142,6 +143,18 @@ export async function PUT(request: Request) {
     parseTranscriptAsync(session.user.id, transcript).catch(() => {
       // Error already logged and error row written inside parseTranscriptAsync
     });
+  }
+
+  const universeRelevantFieldChanged =
+    topics !== undefined ||
+    initiatives !== undefined ||
+    concerns !== undefined ||
+    rapidFireClassifications !== undefined;
+
+  if (universeRelevantFieldChanged) {
+    generateContentUniverse(session.user.id).catch((err) =>
+      console.error("Content universe generation failed (non-critical)", err)
+    );
   }
 
   return NextResponse.json({ ok: true });

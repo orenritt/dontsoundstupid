@@ -356,7 +356,7 @@ describe("runPipeline → compose", () => {
     expect(mockChat).not.toHaveBeenCalled();
   });
 
-  it("returns null when scoring agent returns no selections", async () => {
+  it("returns 'skipped' when scoring agent returns no selections", async () => {
     setupDbFlow();
     mockRunScoringAgent.mockResolvedValue({
       ...scoringResult([]),
@@ -366,7 +366,7 @@ describe("runPipeline → compose", () => {
     const { runPipeline } = await import("../pipeline");
     const briefingId = await runPipeline(FIXTURES.userId);
 
-    expect(briefingId).toBeNull();
+    expect(briefingId).toBe("skipped");
     expect(mockChat).not.toHaveBeenCalled();
   });
 

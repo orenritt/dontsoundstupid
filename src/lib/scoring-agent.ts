@@ -22,6 +22,7 @@ import type {
   SignalSelection,
 } from "../models/relevance";
 import { executeCheckSignalMomentum } from "./signal-momentum";
+import type { ContentUniverse } from "../models/content-universe";
 import { createLogger } from "./logger";
 
 const log = createLogger("scoring-agent");
@@ -122,7 +123,7 @@ When you've made your decision, call:
 14. submit_selections
     Submit your final picks.
     Args: { "selections": [{ "signalIndex": <number>, "reason": "<reason-type>", "reasonLabel": "<human-readable label>", "confidence": <0-1>, "noveltyAssessment": "<why this is novel to the user>", "attribution": "<why this matters to THIS user specifically>" }] }
-    reason must be one of: people-are-talking, meeting-prep, new-entrant, fundraise-or-deal, regulatory-or-policy, term-emerging, network-activity, your-space, competitive-move, event-upcoming, other.
+    reason must be one of: people-are-talking, meeting-prep, new-entrant, fundraise-or-deal, regulatory-or-policy, term-emerging, network-activity, your-space, competitive-move, event-upcoming, seismic-event, other.
     IMPORTANT: Use "meeting-prep" as the reason for any signal selected because it's relevant to an upcoming meeting. The reasonLabel should name the specific meeting or person (e.g., "Because you're meeting Sarah Chen at 2pm").
     IMPORTANT: The "attribution" field must explain why this signal is relevant to THIS specific user. Reference concrete profile elements: their impress list contacts, peer orgs, knowledge gaps, initiatives, meeting attendees, or feedback history. Do NOT write generic attributions like "relevant to your industry" — be specific (e.g., "Acme Corp is on your impress list", "You flagged parametric modeling as a knowledge gap", "Sarah Chen's company overlaps with your initiative on risk assessment").
 
@@ -133,7 +134,38 @@ CRITICAL FORMAT REQUIREMENT: Every response you give MUST be a raw JSON object �
 
 Do NOT write text like "I'll call check_today_meetings" — just output the JSON directly. Do NOT use markdown code fences. Do NOT explain your reasoning in your response. Just output the JSON tool call.`;
 
-function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number): string {
+function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number, contentUniverse: ContentUniverse | null): string {
+  const contentUniverseGate = contentUniverse ? `
+CONTENT UNIVERSE GATE — PRIORITY ZERO
+Before evaluating ANY other criteria, apply this hard filter to every candidate signal:
+
+This user's content universe:
+"${contentUniverse.definition}"
+
+IN-SCOPE topics (signals matching these pass the gate):
+${contentUniverse.coreTopics.map(t => '- ' + t).join('\n')}
+
+OUT-OF-SCOPE topics (signals matching these are REJECTED):
+${contentUniverse.exclusions.map(e => '- ' + e).join('\n')}
+
+GATE RULES:
+- A signal that clearly relates to one or more in-scope topics PASSES the gate.
+- A signal that matches an out-of-scope topic and does NOT relate to any in-scope topic is REJECTED. Do not rescue it with soft relevance reasoning. "Adjacent" or "tangentially related" is NOT enough.
+- It is BETTER to select fewer than ${targetCount} signals than to include ANY signal that fails this gate.
+
+SEISMIC EVENT EXCEPTION — the ONLY way a signal outside the content universe can pass:
+${contentUniverse.seismicThreshold}
+
+All four of these must be true for the exception to apply:
+1. The signal involves a specific, named entity (company, regulator, person) — not a trend or opinion
+2. The event is concrete and verifiable (acquisition, regulatory ruling, leadership change, bankruptcy, market entry)
+3. The event would directly change what the user does, says, or decides THIS WEEK
+4. A colleague in the user's exact niche would mention this event unprompted
+
+If a signal passes via seismic exception, use reason "seismic-event" and explain in attribution why it was admitted despite being outside the content universe.
+
+` : '';
+
   return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to select up to ${targetCount} signals from ${candidateCount} candidates that clear the interestingness bar. You may select fewer — including zero — if the pool doesn't warrant a full briefing.
 
 THE USER:
@@ -147,7 +179,7 @@ THE USER:
 - Knowledge gaps: ${userContext.knowledgeGaps.length > 0 ? userContext.knowledgeGaps.join(", ") : "not specified"}
 ${userContext.rapidFireClassifications.length > 0 ? `- Quick classifications:\n${userContext.rapidFireClassifications.map((r) => `  "${r.topic}" (${r.context}): ${r.response}`).join("\n")}` : ""}
 
-YOUR FIRST TWO MOVES (in order):
+${contentUniverseGate}YOUR FIRST TWO MOVES (in order):
 1. Call check_today_meetings immediately.
 2. Call check_signal_momentum with the user's core topics and any key entities you notice in the candidate list. This tells you what's picking up steam BEFORE you start evaluating individual signals. Any topic that comes back as "surging" or "rising" deserves special attention — scan the candidates for signals about those topics and give them a closer look. Something quietly building across the signal pool is often the most valuable thing you can surface.
 
@@ -1379,8 +1411,10 @@ export async function runScoringAgent(
     deliveryChannel: profile.deliveryChannel,
   };
 
+  const contentUniverse = profile.contentUniverse as ContentUniverse | null;
+
   const pool = candidates.slice(0, config.candidatePoolSize);
-  const systemPrompt = buildSystemPrompt(userContext, pool.length, config.targetSelections);
+  const systemPrompt = buildSystemPrompt(userContext, pool.length, config.targetSelections, contentUniverse);
   const candidateList = buildCandidateList(pool);
 
   const messages: LlmMessage[] = [

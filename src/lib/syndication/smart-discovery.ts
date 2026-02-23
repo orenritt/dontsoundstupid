@@ -10,6 +10,7 @@ import { chat } from "../llm";
 import { toStringArray } from "../safe-parse";
 import { discoverFeeds, discoverNewsletterFeed } from "./feed-discovery";
 import { searchTavily } from "../ai-research/tavily-client";
+import type { ContentUniverse } from "../../models/content-universe";
 
 interface SuggestedSource {
   name: string;
@@ -28,13 +29,10 @@ async function suggestSources(
   company: string,
   topics: string[],
   initiatives: string[],
-  existingFeedDomains: string[]
+  existingFeedDomains: string[],
+  contentUniverse: ContentUniverse | null = null
 ): Promise<SuggestedSource[]> {
-  const response = await chat(
-    [
-      {
-        role: "system",
-        content: `You are an information source curator. Given a professional's role and interests, suggest 15-20 high-quality information sources they should follow. Include:
+  let systemPrompt = `You are an information source curator. Given a professional's role and interests, suggest 15-20 high-quality information sources they should follow. Include:
 - Trade publications and industry news sites
 - Expert blogs and analysis sites
 - Newsletters (Substack, Buttondown, etc.)
@@ -51,7 +49,17 @@ Prioritize sources that:
 Do NOT suggest these domains (already subscribed): ${existingFeedDomains.join(", ")}
 
 Return ONLY a JSON array, no markdown. Each element:
-{"name": "Source Name", "url": "https://example.com", "reason": "Why this matters"}`,
+{"name": "Source Name", "url": "https://example.com", "reason": "Why this matters"}`;
+
+  if (contentUniverse) {
+    systemPrompt += `\n\nThe user's content universe: ${contentUniverse.definition}. Only suggest sources that specifically cover their niche. Do NOT suggest general industry sources that primarily cover these excluded topics: ${contentUniverse.exclusions.join(", ")}`;
+  }
+
+  const response = await chat(
+    [
+      {
+        role: "system",
+        content: systemPrompt,
       },
       {
         role: "user",
@@ -156,12 +164,15 @@ export async function smartDiscoverFeeds(userId: string): Promise<SmartDiscovery
       .filter((d): d is string => !!d);
   }
 
+  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+
   const sources = await suggestSources(
     user.title || "professional",
     user.company || "a company",
     toStringArray(profile.parsedTopics),
     toStringArray(profile.parsedInitiatives),
-    existingFeedDomains
+    existingFeedDomains,
+    contentUniverse
   );
 
   let feedsDiscovered = 0;

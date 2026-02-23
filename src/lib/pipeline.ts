@@ -11,6 +11,7 @@ import { deriveNewsQueries, pollNewsQueries, refreshQueriesForUser } from "./new
 import { deriveFeedsForUser, pollSyndicationFeeds } from "./syndication";
 import { runAiResearch } from "./ai-research";
 import { createReplySession } from "./channel-replies";
+import type { ContentUniverse } from "../models/content-universe";
 import { createLogger } from "./logger";
 
 const log = createLogger("pipeline");
@@ -49,10 +50,14 @@ export async function runPipeline(
     return null;
   }
 
-  ulog.info({ userName: user.name, company: user.company }, "Profile loaded");
+  const contentUniverse = profile.contentUniverse as ContentUniverse | null;
+  ulog.info({ userName: user.name, company: user.company, contentUniverseApplied: !!contentUniverse, contentUniverseVersion: contentUniverse?.version ?? null }, "Profile loaded");
 
   // Ingest fresh signals before scoring
-  const diagnostics: Record<string, unknown> = {};
+  const diagnostics: Record<string, unknown> = {
+    contentUniverseApplied: !!contentUniverse,
+    contentUniverseVersion: contentUniverse?.version ?? null,
+  };
 
   updatePipelineStatus(userId, "ingesting-news");
   try {

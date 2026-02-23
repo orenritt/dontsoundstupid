@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { feedbackSignals, knowledgeEntities } from "@/lib/schema";
 import { embed } from "@/lib/llm";
+import { maybeRegenerateFromFeedback } from "@/lib/content-universe";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -38,6 +39,10 @@ export async function POST(request: Request) {
       // Non-critical
     }
   }
+
+  maybeRegenerateFromFeedback(session.user.id).catch((err) =>
+    console.error("Content universe feedback regen failed (non-critical)", err)
+  );
 
   return NextResponse.json({ ok: true });
 }

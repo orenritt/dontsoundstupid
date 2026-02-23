@@ -18,6 +18,7 @@ interface BriefingItem {
   content: string;
   sourceUrl: string | null;
   sourceLabel: string | null;
+  attribution?: string | null;
 }
 
 interface DeliveryPayload {
@@ -56,6 +57,14 @@ function buildHtml(payload: DeliveryPayload): string {
         ${
           item.sourceUrl
             ? `<a href="${escapeHtml(item.sourceUrl)}" style="font-size: 12px; color: #666; text-decoration: none;">${escapeHtml(item.sourceLabel || "Source")} &rarr;</a>`
+            : ""
+        }
+        ${
+          item.attribution
+            ? `<div style="margin-top: 8px; padding: 8px 10px; background-color: #1a1a1a; border-radius: 6px; border: 1px solid #2a2a2a;">
+                <div style="font-size: 11px; color: #555; margin-bottom: 2px;">Why we showed you this</div>
+                <div style="font-size: 12px; color: #888; line-height: 1.4;">${escapeHtml(item.attribution)}</div>
+              </div>`
             : ""
         }
       </td>

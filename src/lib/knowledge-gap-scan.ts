@@ -9,6 +9,7 @@ import { eq } from "drizzle-orm";
 import { chat, embed } from "./llm";
 import { toStringArray } from "./safe-parse";
 import { contentHash } from "./news-ingestion/query-derivation";
+import type { ContentUniverse } from "../models/content-universe";
 
 interface GapItem {
   name: string;
@@ -60,11 +61,9 @@ export async function scanKnowledgeGaps(userId: string): Promise<ScanResult> {
     .map(([type, items]) => `## ${type}\n${items.join("\n")}`)
     .join("\n\n");
 
-  const response = await chat(
-    [
-      {
-        role: "system",
-        content: `You are a strategic intelligence analyst. You will receive a professional's complete knowledge graph — everything they currently know about or track. Your job is to identify 10-15 GAPS: emerging concepts, companies, trends, regulatory shifts, technologies, or developments in their space that are NOT covered by their existing knowledge.
+  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+
+  let systemPrompt = `You are a strategic intelligence analyst. You will receive a professional's complete knowledge graph — everything they currently know about or track. Your job is to identify 10-15 GAPS: emerging concepts, companies, trends, regulatory shifts, technologies, or developments in their space that are NOT covered by their existing knowledge.
 
 Focus on:
 - New companies/startups that have emerged or gained prominence recently
@@ -72,12 +71,22 @@ Focus on:
 - Regulatory or policy developments that would affect their industry
 - Technology shifts or platform changes relevant to their role
 - Market trends or competitive dynamics not reflected in their graph
-- Cross-industry trends that are starting to affect their domain
+- Emerging concepts, companies, regulations, and technologies WITHIN the user's specific content universe
 
 Do NOT suggest things they already know (check against the graph carefully).
 
 Return ONLY a JSON array, no markdown. Each element:
-{"name": "Item Name", "entityType": "concept|term|company|product|event", "searchQuery": "a search query that would surface news about this", "reason": "1 sentence on why this gap matters"}`,
+{"name": "Item Name", "entityType": "concept|term|company|product|event", "searchQuery": "a search query that would surface news about this", "reason": "1 sentence on why this gap matters"}`;
+
+  if (contentUniverse) {
+    systemPrompt += `\n\nThe user's content universe: ${contentUniverse.definition}\nStay WITHIN this universe. Do NOT suggest gaps from: ${contentUniverse.exclusions.join(", ")}`;
+  }
+
+  const response = await chat(
+    [
+      {
+        role: "system",
+        content: systemPrompt,
       },
       {
         role: "user",
@@ -105,6 +114,17 @@ ${knowledgeSnapshot}`,
   } catch {
     console.error("Failed to parse knowledge gap scan response:", response.content);
     return { gapsFound: 0, queriesAdded: 0, entitiesSeeded: 0 };
+  }
+
+  if (contentUniverse && contentUniverse.exclusions.length > 0) {
+    const exclusionsLower = contentUniverse.exclusions.map((e) => e.toLowerCase());
+    gaps = gaps.filter((gap) => {
+      const nameLower = (gap.name || "").toLowerCase();
+      const queryLower = (gap.searchQuery || "").toLowerCase();
+      return !exclusionsLower.some(
+        (excl) => nameLower.includes(excl) || queryLower.includes(excl)
+      );
+    });
   }
 
   const existingEntityNames = new Set(

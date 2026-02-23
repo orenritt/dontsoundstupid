@@ -74,6 +74,7 @@ export default function BriefingPage() {
     {}
   );
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(new Set());
+  const [whyExpanded, setWhyExpanded] = useState<Set<string>>(new Set());
   const [toasts, setToasts] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -374,6 +375,57 @@ export default function BriefingPage() {
                       >
                         {item.sourceLabel || "Source"} →
                       </a>
+                    )}
+
+                    {item.attribution && (
+                      <>
+                        <button
+                          onClick={() =>
+                            setWhyExpanded((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            })
+                          }
+                          className="mt-2 text-xs text-gray-300 hover:text-gray-500 transition-colors flex items-center gap-1"
+                        >
+                          <span
+                            className="inline-block transition-transform duration-200"
+                            style={{
+                              transform: whyExpanded.has(item.id)
+                                ? "rotate(90deg)"
+                                : "rotate(0deg)",
+                            }}
+                          >
+                            ›
+                          </span>
+                          Why we showed you this
+                        </button>
+
+                        <AnimatePresence>
+                          {whyExpanded.has(item.id) && (
+                            <motion.div
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ duration: 0.2 }}
+                              className="overflow-hidden"
+                            >
+                              <div className="mt-2 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100">
+                                <p className="text-xs text-gray-500 leading-relaxed">
+                                  {item.attribution}
+                                </p>
+                                {item.sourceLabel && (
+                                  <p className="text-[11px] text-gray-400 mt-1.5">
+                                    Source: {item.sourceLabel}
+                                  </p>
+                                )}
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </>
                     )}
 
                     <div className="flex items-center gap-3 mt-3 pt-3 border-t border-gray-50">

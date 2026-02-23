@@ -11,6 +11,7 @@ import { chat } from "../llm";
 import { toStringArray } from "../safe-parse";
 import { contentHash } from "./query-derivation";
 import type { NewsQueryDerivedFrom } from "../../models/news-ingestion";
+import type { ContentUniverse } from "../../models/content-universe";
 
 interface DerivedQuery {
   queryText: string;
@@ -63,7 +64,9 @@ export async function refreshQueriesForUser(userId: string): Promise<number> {
     .filter((f) => f.type === "less-like-this" && f.topic)
     .map((f) => f.topic!);
 
-  const promptContext = {
+  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+
+  const promptContext: Record<string, unknown> = {
     role: user.title || "professional",
     company: user.company || "unknown company",
     topics: toStringArray(profile.parsedTopics),
@@ -77,18 +80,32 @@ export async function refreshQueriesForUser(userId: string): Promise<number> {
     userWantsLess: lessTopics,
   };
 
-  const response = await chat(
-    [
-      {
-        role: "system",
-        content: `You are an intelligence query strategist. Generate search queries that will surface news and developments relevant to a specific professional. Account for:
-- Emerging terminology and new concepts in their space
-- Adjacent topics they should be aware of but haven't explicitly mentioned
+  if (contentUniverse) {
+    promptContext.contentUniverse = {
+      definition: contentUniverse.definition,
+      coreTopics: contentUniverse.coreTopics,
+      exclusions: contentUniverse.exclusions,
+    };
+  }
+
+  let systemPrompt = `You are an intelligence query strategist. Generate search queries that will surface news and developments relevant to a specific professional. Account for:
+- Deeper, more specific angles WITHIN the user's content universe — specific sub-niches, specific mechanisms, specific regulatory bodies, specific companies within their domain
+- Do NOT broaden beyond their content universe into parent categories or adjacent fields
 - Topics they've indicated they want more of
 - Avoid topics they've indicated they want less of
 - Don't duplicate existing queries
 
-Return ONLY a JSON array of strings — each string is a search query. No markdown, no explanation. Generate 5-10 queries.`,
+Return ONLY a JSON array of strings — each string is a search query. No markdown, no explanation. Generate 5-10 queries.`;
+
+  if (contentUniverse) {
+    systemPrompt += `\n\nThe user's content universe is provided. Generate queries that go DEEPER within this universe, not broader. Do NOT generate queries about these excluded topics: ${contentUniverse.exclusions.join(", ")}`;
+  }
+
+  const response = await chat(
+    [
+      {
+        role: "system",
+        content: systemPrompt,
       },
       {
         role: "user",
