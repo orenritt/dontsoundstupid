@@ -134,7 +134,7 @@ CRITICAL FORMAT REQUIREMENT: Every response you give MUST be a raw JSON object �
 
 Do NOT write text like "I'll call check_today_meetings" — just output the JSON directly. Do NOT use markdown code fences. Do NOT explain your reasoning in your response. Just output the JSON tool call.`;
 
-function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number, contentUniverse: ContentUniverse | null): string {
+function buildSystemPrompt(userContext: UserContext, candidateCount: number, targetCount: number, contentUniverse: ContentUniverse | null, forceGenerate = false): string {
   const contentUniverseGate = contentUniverse ? `
 CONTENT UNIVERSE GATE — PRIORITY ZERO
 Before evaluating ANY other criteria, apply this hard filter to every candidate signal:
@@ -166,7 +166,12 @@ If a signal passes via seismic exception, use reason "seismic-event" and explain
 
 ` : '';
 
-  return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to select up to ${targetCount} signals from ${candidateCount} candidates that clear the interestingness bar. You may select fewer — including zero — if the pool doesn't warrant a full briefing.
+  const forceGenerateOverride = forceGenerate ? `
+IMPORTANT OVERRIDE: The user has explicitly asked to see the best available signals despite nothing clearing the normal interestingness bar. You MUST select at least ${Math.min(targetCount, candidateCount)} signals. Pick the most relevant and interesting ones from the pool even if they wouldn't normally clear the bar. Still rank by relevance — put the best first. Still provide honest attribution explaining why each was selected, and note if the signal is weaker than your normal standard.
+
+` : '';
+
+  return `You are an intelligence analyst selecting the most important signals for a professional's daily briefing. Your job is to select up to ${targetCount} signals from ${candidateCount} candidates that clear the interestingness bar.${forceGenerate ? '' : ' You may select fewer — including zero — if the pool doesn\'t warrant a full briefing.'}
 
 THE USER:
 - Name: ${userContext.name || "Unknown"}
@@ -179,7 +184,7 @@ THE USER:
 - Knowledge gaps: ${userContext.knowledgeGaps.length > 0 ? userContext.knowledgeGaps.join(", ") : "not specified"}
 ${userContext.rapidFireClassifications.length > 0 ? `- Quick classifications:\n${userContext.rapidFireClassifications.map((r) => `  "${r.topic}" (${r.context}): ${r.response}`).join("\n")}` : ""}
 
-${contentUniverseGate}YOUR FIRST TWO MOVES (in order):
+${contentUniverseGate}${forceGenerateOverride}YOUR FIRST TWO MOVES (in order):
 1. Call check_today_meetings immediately.
 2. Call check_signal_momentum with the user's core topics and any key entities you notice in the candidate list. This tells you what's picking up steam BEFORE you start evaluating individual signals. Any topic that comes back as "surging" or "rising" deserves special attention — scan the candidates for signals about those topics and give them a closer look. Something quietly building across the signal pool is often the most valuable thing you can surface.
 
@@ -1414,7 +1419,7 @@ export async function runScoringAgent(
   const contentUniverse = profile.contentUniverse as ContentUniverse | null;
 
   const pool = candidates.slice(0, config.candidatePoolSize);
-  const systemPrompt = buildSystemPrompt(userContext, pool.length, config.targetSelections, contentUniverse);
+  const systemPrompt = buildSystemPrompt(userContext, pool.length, config.targetSelections, contentUniverse, config.forceGenerate);
   const candidateList = buildCandidateList(pool);
 
   const messages: LlmMessage[] = [

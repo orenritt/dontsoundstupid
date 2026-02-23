@@ -103,4 +103,5 @@ export interface AgentScoringConfig {
   maxToolRounds: number;
   targetSelections: number;
   candidatePoolSize: number;
+  forceGenerate?: boolean;
 }

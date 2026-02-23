@@ -58,10 +58,10 @@ export async function refreshQueriesForUser(userId: string): Promise<number> {
     .slice(0, 15);
 
   const moreTopics = recentFeedback
-    .filter((f) => f.type === "more-like-this" && f.topic)
+    .filter((f) => f.type === "tune-more" && f.topic)
     .map((f) => f.topic!);
   const lessTopics = recentFeedback
-    .filter((f) => f.type === "less-like-this" && f.topic)
+    .filter((f) => f.type === "tune-less" && f.topic)
     .map((f) => f.topic!);
 
   const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;

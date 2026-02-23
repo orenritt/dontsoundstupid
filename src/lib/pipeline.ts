@@ -197,13 +197,51 @@ export async function runPipeline(
     return null;
   }
 
-  if (agentResult.selections.length === 0) {
+  if (agentResult.selections.length === 0 && !config.forceGenerate) {
     const totalMs = Date.now() - pipelineStart;
     ulog.info({ candidateCount: candidateSignals.length, totalMs }, "No signals cleared interestingness threshold — skipping briefing");
     updatePipelineStatus(userId, "skipped-nothing-interesting", {
-      diagnostics: { candidateCount: candidateSignals.length, scoringReasoning: agentResult.reasoning.slice(0, 1000) },
+      diagnostics: {
+        candidateCount: candidateSignals.length,
+        scoringReasoning: agentResult.reasoning.slice(0, 2000),
+        candidates: candidateSignals.slice(0, 30).map((s, i) => ({
+          index: i,
+          title: s.title,
+          summary: s.summary.slice(0, 200),
+          sourceLabel: s.sourceLabel,
+          sourceUrl: s.sourceUrl,
+        })),
+      },
     });
     return "skipped";
+  }
+
+  if (agentResult.selections.length === 0 && config.forceGenerate) {
+    ulog.info({ candidateCount: candidateSignals.length }, "Force-generate: re-running scoring with relaxed threshold");
+    const forcedResult = await runScoringAgent(userId, candidateSignals, {
+      ...config,
+      forceGenerate: true,
+    });
+    if (forcedResult && forcedResult.selections.length > 0) {
+      Object.assign(agentResult, forcedResult);
+    } else {
+      ulog.warn("Force-generate: still no selections after relaxed scoring");
+      updatePipelineStatus(userId, "skipped-nothing-interesting", {
+        diagnostics: {
+          candidateCount: candidateSignals.length,
+          scoringReasoning: agentResult.reasoning.slice(0, 2000),
+          candidates: candidateSignals.slice(0, 30).map((s, i) => ({
+            index: i,
+            title: s.title,
+            summary: s.summary.slice(0, 200),
+            sourceLabel: s.sourceLabel,
+            sourceUrl: s.sourceUrl,
+          })),
+          forceGenerateFailed: true,
+        },
+      });
+      return "skipped";
+    }
   }
 
   ulog.info({ selections: agentResult.selections.length, scoringMs: Date.now() - scoringStart, toolCalls: agentResult.toolCallLog.length, model: agentResult.modelUsed }, "Scoring complete");

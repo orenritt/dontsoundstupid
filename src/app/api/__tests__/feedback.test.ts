@@ -75,7 +75,7 @@ describe("POST /api/feedback/tune", () => {
     expect(res.status).toBe(401);
   });
 
-  it("inserts more-like-this feedback for direction=up", async () => {
+  it("inserts tune-more feedback for direction=up", async () => {
     const { POST } = await import("../feedback/tune/route");
     const res = await POST(
       makeRequest({
@@ -90,11 +90,11 @@ describe("POST /api/feedback/tune", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "more-like-this" })
+      expect.objectContaining({ type: "tune-more" })
     );
   });
 
-  it("inserts less-like-this feedback for direction=down", async () => {
+  it("inserts tune-less feedback for direction=down", async () => {
     const { POST } = await import("../feedback/tune/route");
     const res = await POST(
       makeRequest({
@@ -107,7 +107,7 @@ describe("POST /api/feedback/tune", () => {
 
     expect(res.status).toBe(200);
     expect(mockValues).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "less-like-this" })
+      expect.objectContaining({ type: "tune-less" })
     );
   });
 });

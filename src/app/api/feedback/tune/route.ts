@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     userId: session.user.id,
     briefingId,
     briefingItemId: itemId,
-    type: direction === "up" ? "more-like-this" : "less-like-this",
+    type: direction === "up" ? "tune-more" : "tune-less",
     topic,
   });
 

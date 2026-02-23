@@ -26,8 +26,8 @@ interface FeedbackRow {
 }
 
 const TYPE_COLORS: Record<string, "green" | "blue" | "purple" | "yellow" | "red"> = {
-  "more-like-this": "green",
-  "less-like-this": "red",
+  "tune-more": "green",
+  "tune-less": "red",
   "not-novel": "yellow",
   "deep-dive": "blue",
 };

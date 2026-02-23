@@ -21,6 +21,14 @@ interface Briefing {
   generatedAt: string;
 }
 
+interface SkippedCandidate {
+  index: number;
+  title: string;
+  summary: string;
+  sourceLabel: string | null;
+  sourceUrl: string | null;
+}
+
 interface PipelineProgress {
   running: boolean;
   stage?: string;
@@ -28,6 +36,11 @@ interface PipelineProgress {
   elapsedMs?: number;
   briefingId?: string | null;
   error?: string | null;
+  diagnostics?: {
+    candidateCount?: number;
+    scoringReasoning?: string;
+    candidates?: SkippedCandidate[];
+  } | null;
 }
 
 type PageState =
@@ -35,6 +48,7 @@ type PageState =
   | "needs-onboarding"
   | "no-briefing"
   | "generating"
+  | "skipped"
   | "has-briefing";
 
 const STAGE_ORDER = [
@@ -75,6 +89,8 @@ export default function BriefingPage() {
   );
   const [dismissedItems, setDismissedItems] = useState<Set<string>>(new Set());
   const [whyExpanded, setWhyExpanded] = useState<Set<string>>(new Set());
+  const [skippedCandidates, setSkippedCandidates] = useState<SkippedCandidate[]>([]);
+  const [skippedReasoning, setSkippedReasoning] = useState<string>("");
   const [toasts, setToasts] = useState<string[]>([]);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -112,21 +128,27 @@ export default function BriefingPage() {
         return;
       }
 
-      if (briefingRes.ok) {
-        const data = await briefingRes.json();
-        if (data.briefing) {
-          setBriefing(data.briefing);
-          setPageState("has-briefing");
-          return;
-        }
-      }
-
       if (pipelineRes.ok) {
         const pipelineData: PipelineProgress = await pipelineRes.json();
         if (pipelineData.running) {
           setProgress(pipelineData);
           setPageState("generating");
           startPolling();
+          return;
+        }
+        if (pipelineData.stage === "skipped-nothing-interesting") {
+          setSkippedCandidates(pipelineData.diagnostics?.candidates ?? []);
+          setSkippedReasoning(pipelineData.diagnostics?.scoringReasoning ?? "");
+          setPageState("skipped");
+          return;
+        }
+      }
+
+      if (briefingRes.ok) {
+        const data = await briefingRes.json();
+        if (data.briefing) {
+          setBriefing(data.briefing);
+          setPageState("has-briefing");
           return;
         }
       }
@@ -150,6 +172,13 @@ export default function BriefingPage() {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
           await loadPage();
+        } else if (data.stage === "skipped-nothing-interesting") {
+          if (pollRef.current) clearInterval(pollRef.current);
+          pollRef.current = null;
+          setSkippedCandidates(data.diagnostics?.candidates ?? []);
+          setSkippedReasoning(data.diagnostics?.scoringReasoning ?? "");
+          setPageState("skipped");
+          setProgress(null);
         } else if (data.stage === "failed") {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
@@ -163,13 +192,19 @@ export default function BriefingPage() {
     }, 1500);
   }
 
-  async function triggerPipeline() {
+  async function triggerPipeline(options?: { forceGenerate?: boolean }) {
     setPageState("generating");
     setGenerateError(null);
+    setSkippedCandidates([]);
+    setSkippedReasoning("");
     setProgress({ running: true, stage: "starting", message: "Starting pipeline..." });
 
     try {
-      const res = await fetch("/api/pipeline/trigger", { method: "POST" });
+      const res = await fetch("/api/pipeline/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ forceGenerate: options?.forceGenerate ?? false }),
+      });
       if (!res.ok) {
         const data = await res.json();
         setGenerateError(data.error || "Failed to start pipeline.");
@@ -289,6 +324,101 @@ export default function BriefingPage() {
           <div className="flex justify-between text-xs text-gray-400">
             <span>{pct}%</span>
             {elapsed && <span>{elapsed}</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (pageState === "skipped") {
+    return (
+      <div className="min-h-screen bg-[#fafafa]">
+        <div className="max-w-2xl mx-auto px-6 py-12">
+          <header className="mb-8">
+            <h1 className="text-xl font-semibold text-gray-900 mb-2">
+              Nothing interesting enough today
+            </h1>
+            <p className="text-gray-500 text-sm leading-relaxed">
+              We evaluated {skippedCandidates.length} signals but none cleared
+              the interestingness bar. Silence is better than noise — but you
+              can review what we found and force a briefing if you want.
+            </p>
+          </header>
+
+          {skippedCandidates.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-sm font-medium text-gray-700 mb-3">
+                Candidates evaluated ({skippedCandidates.length})
+              </h2>
+              <div className="space-y-2">
+                {skippedCandidates.map((c) => (
+                  <div
+                    key={c.index}
+                    className="bg-white border border-gray-100 rounded-lg p-4 shadow-sm"
+                  >
+                    <p className="text-sm text-gray-900 font-medium leading-snug">
+                      {c.title}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                      {c.summary}
+                    </p>
+                    {c.sourceLabel && (
+                      <p className="text-[11px] text-gray-400 mt-1.5">
+                        {c.sourceUrl ? (
+                          <a
+                            href={c.sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hover:underline"
+                          >
+                            {c.sourceLabel} &rarr;
+                          </a>
+                        ) : (
+                          c.sourceLabel
+                        )}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {skippedReasoning && (
+            <div className="mb-8">
+              <button
+                onClick={() => {
+                  const el = document.getElementById("scoring-reasoning");
+                  if (el) el.classList.toggle("hidden");
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+              >
+                <span>›</span> Why nothing was selected
+              </button>
+              <div
+                id="scoring-reasoning"
+                className="hidden mt-2 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100"
+              >
+                <p className="text-xs text-gray-500 leading-relaxed whitespace-pre-wrap">
+                  {skippedReasoning}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={() => triggerPipeline({ forceGenerate: true })}
+              className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors text-sm"
+            >
+              Generate briefing anyway
+            </button>
+            <button
+              onClick={() => triggerPipeline()}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Try again with fresh signals
+            </button>
           </div>
         </div>
       </div>

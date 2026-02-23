@@ -15,12 +15,15 @@ export async function GET() {
     return NextResponse.json({ running: false });
   }
 
+  const terminalStages = ["done", "failed", "skipped-nothing-interesting"];
+
   return NextResponse.json({
-    running: status.stage !== "done" && status.stage !== "failed",
+    running: !terminalStages.includes(status.stage),
     stage: status.stage,
     message: status.message,
     elapsedMs: Date.now() - status.startedAt,
     briefingId: status.briefingId ?? null,
     error: status.error ?? null,
+    diagnostics: terminalStages.includes(status.stage) ? (status.diagnostics ?? null) : null,
   });
 }
