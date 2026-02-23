@@ -57,14 +57,21 @@ export default function AdminLayout({
   useEffect(() => {
     fetch("/api/admin/data-explorer?source=overview")
       .then((res) => {
+        if (res.status === 401) {
+          router.replace("/auth/login");
+          return;
+        }
         if (res.status === 403) {
           setAuthed("denied");
           return;
         }
-        if (!res.ok) throw new Error();
+        if (!res.ok) throw new Error(`Admin API returned ${res.status}`);
         setAuthed("ok");
       })
-      .catch(() => router.replace("/auth/login"));
+      .catch((err) => {
+        console.error("Admin auth check failed:", err);
+        setAuthed("denied");
+      });
   }, [router]);
 
   if (authed === "loading") {

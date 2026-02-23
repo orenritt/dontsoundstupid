@@ -5,23 +5,33 @@ import { sql } from "drizzle-orm";
 
 const ADMIN_EMAIL = "orenrittenberg@gmail.com";
 
-async function requireAdmin() {
+async function requireAdmin(): Promise<
+  { userId: string } | { error: string; status: 401 | 403 }
+> {
   const session = await auth();
-  if (!session?.user?.id) return null;
+  if (!session?.user?.id) {
+    return { error: "Unauthorized", status: 401 };
+  }
 
   const rows = await db.execute(
     sql`SELECT email FROM users WHERE id = ${session.user.id} LIMIT 1`
   );
   const userRows = rows as unknown as { email: string }[];
-  if (!userRows[0] || userRows[0].email !== ADMIN_EMAIL) return null;
-  return session.user.id;
+  if (!userRows[0] || userRows[0].email !== ADMIN_EMAIL) {
+    return { error: "Forbidden", status: 403 };
+  }
+  return { userId: session.user.id };
 }
 
 export async function GET(request: NextRequest) {
-  const userId = await requireAdmin();
-  if (!userId) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const result = await requireAdmin();
+  if ("error" in result) {
+    return NextResponse.json(
+      { error: result.error },
+      { status: result.status }
+    );
   }
+  const { userId } = result;
 
   const source = request.nextUrl.searchParams.get("source");
   const limit = Math.min(
@@ -290,6 +300,20 @@ export async function GET(request: NextRequest) {
         LEFT JOIN users u ON u.id = sp.user_id
         ORDER BY sp.created_at DESC
         LIMIT ${limit} OFFSET ${offset}
+      `);
+      return NextResponse.json({ rows });
+    }
+
+    case "newsletter-subscribers": {
+      const id = request.nextUrl.searchParams.get("id");
+      if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+      const rows = await db.execute(sql`
+        SELECT uns.id, uns.user_id, uns.created_at,
+               u.email, u.name
+        FROM user_newsletter_subscriptions uns
+        LEFT JOIN users u ON u.id = uns.user_id
+        WHERE uns.newsletter_id = ${id}::uuid
+        ORDER BY uns.created_at DESC
       `);
       return NextResponse.json({ rows });
     }

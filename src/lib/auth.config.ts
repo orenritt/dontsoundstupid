@@ -7,6 +7,20 @@ export const authConfig = {
     newUser: "/onboarding",
   },
   callbacks: {
+    authorized({ auth, request: { nextUrl } }) {
+      const isLoggedIn = !!auth?.user;
+      const isProtected =
+        nextUrl.pathname.startsWith("/admin") ||
+        nextUrl.pathname.startsWith("/briefing") ||
+        nextUrl.pathname.startsWith("/settings") ||
+        nextUrl.pathname.startsWith("/onboarding") ||
+        nextUrl.pathname.startsWith("/pipeline");
+
+      if (isProtected && !isLoggedIn) {
+        return false; // redirects to signIn page
+      }
+      return true;
+    },
     async session({ session, token }) {
       if (token.sub) {
         session.user.id = token.sub;
