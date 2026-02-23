@@ -27,6 +27,16 @@ export default function LoginPage() {
       return;
     }
 
+    // Check onboarding status to route to the right place
+    try {
+      const statusRes = await fetch("/api/user/status");
+      if (statusRes.ok) {
+        const status = await statusRes.json();
+        window.location.href =
+          status.onboardingStatus === "completed" ? "/briefing" : "/onboarding";
+        return;
+      }
+    } catch {}
     window.location.href = "/briefing";
   }
 

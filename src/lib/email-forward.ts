@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { db } from "./db";
 import { users } from "./schema";
 import { eq, sql } from "drizzle-orm";
@@ -44,7 +45,6 @@ export function verifyWebhookSignature(
 ): boolean {
   if (!config.webhookSecret) return false;
 
-  const crypto = require("crypto") as typeof import("crypto");
   const expectedSignature = crypto
     .createHmac("sha256", config.webhookSecret)
     .update(payload)

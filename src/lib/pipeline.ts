@@ -4,6 +4,9 @@ import { eq } from "drizzle-orm";
 import { chat } from "./llm";
 import { runScoringAgent, DEFAULT_AGENT_CONFIG } from "./scoring-agent";
 import type { AgentScoringConfig } from "../models/relevance";
+import { pollNewsQueries, deriveNewsQueries } from "./news-ingestion";
+import { deriveFeedsForUser, pollSyndicationFeeds } from "./syndication";
+import { sendBriefingEmail } from "./delivery";
 
 interface RawSignal {
   title: string;
@@ -44,6 +47,36 @@ export async function runPipeline(
     .filter(Boolean)
     .join(". ");
 
+  // Step 0a: Derive and poll news queries from GDELT
+  let newsSignals: RawSignal[] = [];
+  try {
+    await deriveNewsQueries(userId);
+    const newsResult = await pollNewsQueries(crypto.randomUUID());
+    newsSignals = newsResult.signals.map((s) => ({
+      title: s.title,
+      summary: s.summary || s.content,
+      sourceUrl: s.sourceUrl,
+      sourceLabel: s.metadata.source_domain || null,
+    }));
+  } catch (err) {
+    console.error("News ingestion layer failed (non-critical):", err);
+  }
+
+  // Step 0b: Poll RSS/syndication feeds
+  let syndicationSignals: RawSignal[] = [];
+  try {
+    await deriveFeedsForUser(userId);
+    const synResult = await pollSyndicationFeeds();
+    syndicationSignals = synResult.signals.map((s) => ({
+      title: s.title,
+      summary: s.summary || s.content,
+      sourceUrl: s.sourceUrl,
+      sourceLabel: s.metadata.siteName || null,
+    }));
+  } catch (err) {
+    console.error("Syndication ingestion layer failed (non-critical):", err);
+  }
+
   // Step 1: Generate candidate signals via AI research
   const signalResponse = await chat(
     [
@@ -75,7 +108,13 @@ Return valid JSON: an array of signal objects with these exact fields. Focus on 
     return null;
   }
 
-  if (!Array.isArray(signals) || signals.length === 0) return null;
+  if (!Array.isArray(signals) || signals.length === 0) {
+    signals = [];
+  }
+
+  // Merge external signals into the candidate pool
+  signals = [...signals, ...newsSignals, ...syndicationSignals];
+  if (signals.length === 0) return null;
 
   // Step 2: Agent-based selection — the scoring agent evaluates the full
   // candidate pool against the user's profile, knowledge graph, feedback
@@ -167,5 +206,22 @@ You will receive pre-selected signals with reasons. For each, preserve the reaso
     })
     .returning();
 
-  return briefing?.id ?? null;
+  if (!briefing?.id) return null;
+
+  // Step 5: Deliver via email if configured
+  const deliveryChannel = profile.deliveryChannel;
+  if (deliveryChannel === "email" && user.email && process.env.RESEND_API_KEY) {
+    try {
+      await sendBriefingEmail({
+        toEmail: user.email,
+        userName: user.name || "there",
+        items,
+        briefingId: briefing.id,
+      });
+    } catch (err) {
+      console.error("Email delivery failed (non-critical):", err);
+    }
+  }
+
+  return briefing.id;
 }

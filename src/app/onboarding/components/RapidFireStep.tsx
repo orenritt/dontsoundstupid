@@ -16,9 +16,10 @@ interface Classification {
 
 interface RapidFireStepProps {
   onComplete: () => void;
+  onBack?: () => void;
 }
 
-export function RapidFireStep({ onComplete }: RapidFireStepProps) {
+export function RapidFireStep({ onComplete, onBack }: RapidFireStepProps) {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [ready, setReady] = useState(false);
   const [classifications, setClassifications] = useState<Classification[]>([]);
@@ -93,6 +94,17 @@ export function RapidFireStep({ onComplete }: RapidFireStepProps) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
         <div className="max-w-lg mx-auto w-full text-center">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="mb-6 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 12L6 8l4-4" />
+              </svg>
+              Back
+            </button>
+          )}
           <p className="text-lg text-gray-900">
             Analyzing what you told me
             <motion.span
@@ -111,8 +123,23 @@ export function RapidFireStep({ onComplete }: RapidFireStepProps) {
   return (
     <div className="flex min-h-screen flex-col items-center px-6 py-12">
       <div className="relative w-full max-w-lg mx-auto">
-        <div className="absolute top-0 right-0 text-sm text-gray-500">
-          {currentIndex + 1} of {topics.length}
+        <div className="flex items-center justify-between">
+          {onBack ? (
+            <button
+              onClick={onBack}
+              className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 12L6 8l4-4" />
+              </svg>
+              Back
+            </button>
+          ) : (
+            <div />
+          )}
+          <span className="text-sm text-gray-500">
+            {currentIndex + 1} of {topics.length}
+          </span>
         </div>
 
         <AnimatePresence mode="wait">

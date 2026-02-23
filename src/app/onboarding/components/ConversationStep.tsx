@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { motion } from "framer-motion";
 
 interface ConversationStepProps {
@@ -61,9 +61,87 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [usedVoice, setUsedVoice] = useState(false);
+  const [livePartial, setLivePartial] = useState("");
 
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const isValid = transcript.length >= 20;
-  const inputMethod = recording ? "voice" : "text";
+  const inputMethod = usedVoice ? "voice" : "text";
+
+  const stopRecording = useCallback(() => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setRecording(false);
+    setLivePartial("");
+  }, []);
+
+  const startRecording = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Voice input is not supported in this browser. Please use Chrome or Edge.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let finalText = "";
+      let interimText = "";
+
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalText += result[0].transcript;
+        } else {
+          interimText += result[0].transcript;
+        }
+      }
+
+      if (finalText) {
+        setTranscript((prev) => {
+          const separator = prev.length > 0 ? " " : "";
+          return prev + separator + finalText.trim();
+        });
+        setUsedVoice(true);
+      }
+      setLivePartial(interimText);
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error === "not-allowed") {
+        setError("Microphone access denied. Please allow microphone access and try again.");
+      } else if (event.error !== "aborted") {
+        setError(`Voice error: ${event.error}`);
+      }
+      stopRecording();
+    };
+
+    recognition.onend = () => {
+      setRecording(false);
+      setLivePartial("");
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setRecording(true);
+    setError(null);
+  }, [stopRecording]);
+
+  const toggleRecording = useCallback(() => {
+    if (recording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }, [recording, startRecording, stopRecording]);
+
+  useEffect(() => {
+    return () => { recognitionRef.current?.stop(); };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,8 +224,8 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
           <div className="absolute right-3 top-3 flex flex-col items-end gap-1">
             <motion.button
               type="button"
-              onClick={() => setRecording(!recording)}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+              onClick={toggleRecording}
+              className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors ${recording ? "bg-red-500/20 hover:bg-red-500/30" : "bg-white/10 hover:bg-white/20"}`}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
@@ -168,6 +246,10 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
             </span>
           </div>
         </div>
+
+        {livePartial && recording && (
+          <p className="w-full text-sm italic text-gray-400">{livePartial}</p>
+        )}
 
         {error && <p className="text-sm text-red-400">{error}</p>}
 

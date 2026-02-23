@@ -6,6 +6,7 @@ type Channel = "email" | "slack" | "sms" | "whatsapp";
 
 interface DeliveryStepProps {
   onComplete: () => void;
+  onBack?: () => void;
 }
 
 const CHANNELS: { id: Channel; label: string; icon: string }[] = [
@@ -15,7 +16,7 @@ const CHANNELS: { id: Channel; label: string; icon: string }[] = [
   { id: "whatsapp", label: "WhatsApp", icon: "📲" },
 ];
 
-export function DeliveryStep({ onComplete }: DeliveryStepProps) {
+export function DeliveryStep({ onComplete, onBack }: DeliveryStepProps) {
   const [channel, setChannel] = useState<Channel>("email");
   const [time, setTime] = useState("07:00");
   const [timezone, setTimezone] = useState("");
@@ -47,6 +48,17 @@ export function DeliveryStep({ onComplete }: DeliveryStepProps) {
   return (
     <div className="flex min-h-screen flex-col items-center px-6 py-12">
       <div className="w-full max-w-lg mx-auto">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 12L6 8l4-4" />
+            </svg>
+            Back
+          </button>
+        )}
         <div className="space-y-6">
           <div>
             <p className="text-sm font-medium text-gray-900 mb-3">

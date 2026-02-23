@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { peerOrganizations } from "@/lib/schema";
+import { peerOrganizations, users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
-import { getMockPeerOrgs } from "@/lib/enrichment";
+import { derivePeerOrganizations } from "@/lib/enrichment";
 
 export async function GET() {
   const session = await auth();
@@ -20,9 +20,25 @@ export async function GET() {
     return NextResponse.json({ peers: existing });
   }
 
-  const mockOrgs = getMockPeerOrgs();
+  const [user] = await db
+    .select({ company: users.company, title: users.title })
+    .from(users)
+    .where(eq(users.id, session.user.id))
+    .limit(1);
+
+  if (!user?.company) {
+    return NextResponse.json({ peers: [] });
+  }
+
+  const derived = await derivePeerOrganizations(
+    user.company,
+    undefined,
+    user.title ?? undefined,
+    undefined
+  );
+
   const inserted = [];
-  for (const org of mockOrgs) {
+  for (const org of derived) {
     const [row] = await db
       .insert(peerOrganizations)
       .values({

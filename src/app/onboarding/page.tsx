@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { LinkedInStep } from "./components/LinkedInStep";
@@ -22,6 +22,17 @@ type Step =
   | "calendar"
   | "complete";
 
+const STEP_ORDER: Step[] = [
+  "linkedin",
+  "conversation",
+  "impress",
+  "rapid-fire",
+  "peer-review",
+  "delivery",
+  "calendar",
+  "complete",
+];
+
 interface UserData {
   name?: string;
   photoUrl?: string;
@@ -31,7 +42,31 @@ interface UserData {
 export default function OnboardingPage() {
   const [step, setStep] = useState<Step>("linkedin");
   const [userData, setUserData] = useState<UserData>({ contacts: [] });
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  useEffect(() => {
+    fetch("/api/onboarding/progress")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data) return;
+        if (data.resumeStep === "completed") {
+          router.replace("/briefing");
+          return;
+        }
+        setStep(data.resumeStep);
+        if (data.userData) {
+          setUserData({
+            name: data.userData.name,
+            photoUrl: data.userData.photoUrl,
+            contacts: data.userData.contacts ?? [],
+          });
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [router]);
 
   const isOrbPhase = step === "linkedin" || step === "conversation" || step === "impress";
 
@@ -42,28 +77,122 @@ export default function OnboardingPage() {
     []
   );
 
+  const goBack = useCallback(() => {
+    const currentIndex = STEP_ORDER.indexOf(step);
+    if (currentIndex > 0) {
+      setStep(STEP_ORDER[currentIndex - 1]);
+    }
+  }, [step]);
+
+  const startOver = useCallback(() => {
+    setStep("linkedin");
+    setUserData({ contacts: [] });
+  }, []);
+
+  const handleExit = useCallback(() => {
+    setShowExitConfirm(true);
+  }, []);
+
+  const confirmExit = useCallback(() => {
+    router.push("/");
+  }, [router]);
+
+  if (loading) {
+    return <div className="min-h-screen bg-[#0a0a0a]" />;
+  }
+
   return (
     <div
       className={`min-h-screen transition-colors duration-500 ${
         isOrbPhase ? "bg-[#0a0a0a]" : "bg-[#f5f5f5]"
       }`}
     >
+      {/* Exit button — always visible except on completion */}
+      {step !== "complete" && (
+        <button
+          onClick={handleExit}
+          className={`fixed top-4 right-4 z-50 flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
+            isOrbPhase
+              ? "text-white/40 hover:text-white/70 hover:bg-white/10"
+              : "text-gray-400 hover:text-gray-600 hover:bg-gray-200"
+          }`}
+          aria-label="Exit onboarding"
+        >
+          <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      )}
+
+      {/* Start-over link for orb phases */}
+      {isOrbPhase && step !== "linkedin" && (
+        <button
+          onClick={startOver}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 text-xs text-white/30 hover:text-white/60 transition-colors"
+        >
+          Start over
+        </button>
+      )}
+
+      {/* Progress bar + back button for card phases */}
       {!isOrbPhase && step !== "complete" && (
-        <div className="fixed top-0 left-0 right-0 h-1 bg-gray-200 z-50">
-          <div
-            className="h-full bg-black transition-all duration-500"
-            style={{
-              width: `${
-                (["rapid-fire", "peer-review", "delivery", "calendar"].indexOf(
-                  step
-                ) +
-                  4) *
-                (100 / 7)
-              }%`,
-            }}
-          />
+        <div className="fixed top-0 left-0 right-0 z-50">
+          <div className="h-1 bg-gray-200">
+            <div
+              className="h-full bg-black transition-all duration-500"
+              style={{
+                width: `${
+                  (["rapid-fire", "peer-review", "delivery", "calendar"].indexOf(
+                    step
+                  ) +
+                    4) *
+                  (100 / 7)
+                }%`,
+              }}
+            />
+          </div>
         </div>
       )}
+
+      {/* Exit confirmation modal */}
+      <AnimatePresence>
+        {showExitConfirm && (
+          <motion.div
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowExitConfirm(false)}
+          >
+            <motion.div
+              className="mx-4 w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-semibold text-gray-900">Leave onboarding?</h3>
+              <p className="mt-2 text-sm text-gray-500">
+                Your progress is saved. You can pick up where you left off.
+              </p>
+              <div className="mt-6 flex gap-3">
+                <button
+                  onClick={() => setShowExitConfirm(false)}
+                  className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Stay
+                </button>
+                <button
+                  onClick={confirmExit}
+                  className="flex-1 rounded-lg bg-gray-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
+                >
+                  Leave
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence mode="wait">
         {step === "linkedin" && (
@@ -129,7 +258,10 @@ export default function OnboardingPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            <RapidFireStep onComplete={() => goNext("peer-review")} />
+            <RapidFireStep
+              onComplete={() => goNext("peer-review")}
+              onBack={goBack}
+            />
           </motion.div>
         )}
 
@@ -141,7 +273,10 @@ export default function OnboardingPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            <PeerReviewStep onComplete={() => goNext("delivery")} />
+            <PeerReviewStep
+              onComplete={() => goNext("delivery")}
+              onBack={goBack}
+            />
           </motion.div>
         )}
 
@@ -153,7 +288,10 @@ export default function OnboardingPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            <DeliveryStep onComplete={() => goNext("calendar")} />
+            <DeliveryStep
+              onComplete={() => goNext("calendar")}
+              onBack={goBack}
+            />
           </motion.div>
         )}
 
@@ -165,7 +303,10 @@ export default function OnboardingPage() {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4 }}
           >
-            <CalendarStep onComplete={() => goNext("complete")} />
+            <CalendarStep
+              onComplete={() => goNext("complete")}
+              onBack={goBack}
+            />
           </motion.div>
         )}
 

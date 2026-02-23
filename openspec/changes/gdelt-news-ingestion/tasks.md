@@ -35,33 +35,33 @@
 
 ## 6. News Ingestion Layer
 
-- [ ] 6.1 Implement `pollNewsQueries(cycleId)` — iterates active queries, calls DOC API client, normalizes results into signals with layer "news"
-- [ ] 6.2 Implement article-to-signal normalization: title, content (summary), sourceUrl, publishedAt, metadata (tone fields, source domain, country, language, GDELT doc ID)
-- [ ] 6.3 Implement signal deduplication against existing signals (URL match + content hash)
-- [ ] 6.4 Implement provenance record creation — link each signal to users whose queries matched, with correct trigger reason based on query's `derivedFrom`
-- [ ] 6.5 Implement poll state updates on success (timestamp, result count, content hash) and failure (error count, backoff)
-- [ ] 6.6 Implement GKG supplementary lookup pass after DOC API polling (when gkgEnabled config is true)
+- [x] 6.1 Implement `pollNewsQueries(cycleId)` — iterates active queries, calls DOC API client, normalizes results into signals with layer "news"
+- [x] 6.2 Implement article-to-signal normalization: title, content (summary), sourceUrl, publishedAt, metadata (tone fields, source domain, country, language, GDELT doc ID)
+- [x] 6.3 Implement signal deduplication against existing signals (URL match + content hash)
+- [x] 6.4 Implement provenance record creation — link each signal to users whose queries matched, with correct trigger reason based on query's `derivedFrom`
+- [x] 6.5 Implement poll state updates on success (timestamp, result count, content hash) and failure (error count, backoff)
+- [x] 6.6 Implement GKG supplementary lookup pass after DOC API polling (when gkgEnabled config is true)
 
 ## 7. Configuration
 
-- [ ] 7.1 Define news ingestion config type with defaults: pollIntervalMinutes (1440), maxArticlesPerQuery (25), lookbackHours (24), rateLimitCooldownSeconds (60), interQueryDelayMs (2000), maxQueriesPerCycle (50), gkgEnabled (true)
-- [ ] 7.2 Load config from environment variables or config file
+- [x] 7.1 Define news ingestion config type with defaults: pollIntervalMinutes (1440), maxArticlesPerQuery (25), lookbackHours (24), rateLimitCooldownSeconds (60), interQueryDelayMs (2000), maxQueriesPerCycle (50), gkgEnabled (true)
+- [x] 7.2 Load config from environment variables or config file
 
 ## 8. Orchestrator Integration
 
-- [ ] 8.1 Register news ingestion as a layer in the daily orchestrator's shared ingestion cycle
-- [ ] 8.2 Call `pollNewsQueries` during the ingestion stage, tracking signal count and layer status in `ingestionCycleState`
-- [ ] 8.3 Ensure orchestrator error handling treats news layer failures as non-critical (continues with other layers)
+- [x] 8.1 Register news ingestion as a layer in the daily orchestrator's shared ingestion cycle
+- [x] 8.2 Call `pollNewsQueries` during the ingestion stage, tracking signal count and layer status in `ingestionCycleState`
+- [x] 8.3 Ensure orchestrator error handling treats news layer failures as non-critical (continues with other layers)
 
 ## 9. Scoring Agent Updates
 
-- [ ] 9.1 Update scoring agent system prompt to describe news-layer signals and GDELT tone metadata availability
-- [ ] 9.2 Verify news signals flow through existing agent tools (knowledge graph lookup, provenance, peer comparison) without changes
+- [x] 9.1 Update scoring agent system prompt to describe news-layer signals and GDELT tone metadata availability
+- [x] 9.2 Verify news signals flow through existing agent tools (knowledge graph lookup, provenance, peer comparison) without changes
 
 ## 10. Testing
 
-- [ ] 10.1 Unit tests for query derivation from each profile element type (impress list, peer orgs, intelligence goals, topics)
-- [ ] 10.2 Unit tests for GDELT DOC API client response parsing and tone extraction
-- [ ] 10.3 Unit tests for article deduplication logic (URL match, content hash)
-- [ ] 10.4 Unit tests for poll state management (success update, error backoff, rate limit handling)
-- [ ] 10.5 Integration test: end-to-end news ingestion cycle with mock GDELT API — verify signals are created with correct layer, metadata, and provenance
+- [x] 10.1 Unit tests for query derivation from each profile element type (impress list, peer orgs, intelligence goals, topics)
+- [x] 10.2 Unit tests for GDELT DOC API client response parsing and tone extraction
+- [x] 10.3 Unit tests for article deduplication logic (URL match, content hash)
+- [x] 10.4 Unit tests for poll state management (success update, error backoff, rate limit handling)
+- [x] 10.5 Integration test: end-to-end news ingestion cycle with mock GDELT API — verify signals are created with correct layer, metadata, and provenance

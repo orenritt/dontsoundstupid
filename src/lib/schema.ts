@@ -387,6 +387,50 @@ export const newsPollState = pgTable(
   ]
 );
 
+export const syndicationFeeds = pgTable(
+  "syndication_feeds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    feedUrl: text("feed_url").notNull().unique(),
+    siteUrl: text("site_url"),
+    siteName: text("site_name"),
+    feedType: text("feed_type").notNull().default("rss"),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    lastItemDate: timestamp("last_item_date", { withTimezone: true }),
+    consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+    lastErrorMessage: text("last_error_message"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("idx_syndication_feeds_active").on(table.active),
+  ]
+);
+
+export const userFeedSubscriptions = pgTable(
+  "user_feed_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    feedId: uuid("feed_id")
+      .notNull()
+      .references(() => syndicationFeeds.id),
+    derivedFrom: text("derived_from").notNull(),
+    profileReference: text("profile_reference").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("unique_user_feed").on(table.userId, table.feedId),
+    index("idx_user_feed_user").on(table.userId),
+  ]
+);
+
 export const rapidFireTopics = pgTable(
   "rapid_fire_topics",
   {

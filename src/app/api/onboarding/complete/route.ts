@@ -6,6 +6,8 @@ import { eq } from "drizzle-orm";
 import { seedKnowledgeGraph } from "@/lib/knowledge-seed";
 import { runPipeline } from "@/lib/pipeline";
 
+export const maxDuration = 60;
+
 export async function POST() {
   const session = await auth();
   if (!session?.user?.id) {
@@ -19,9 +21,12 @@ export async function POST() {
     .set({ onboardingStatus: "completed" })
     .where(eq(users.id, userId));
 
-  seedKnowledgeGraph(userId)
-    .then(() => runPipeline(userId))
-    .catch(console.error);
-
-  return NextResponse.json({ ok: true });
+  try {
+    await seedKnowledgeGraph(userId);
+    const briefingId = await runPipeline(userId);
+    return NextResponse.json({ ok: true, briefingId });
+  } catch (e) {
+    console.error("Post-onboarding pipeline failed:", e);
+    return NextResponse.json({ ok: true, briefingId: null });
+  }
 }

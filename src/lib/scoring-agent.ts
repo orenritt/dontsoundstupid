@@ -150,6 +150,11 @@ YOUR SELECTION CRITERIA (in priority order):
 6. DIVERSITY — Cover different areas of their interest rather than ${targetCount} signals about the same thing.
 7. FEEDBACK ALIGNMENT — Use check_feedback_history to honor their tune-more and tune-less signals.
 
+SIGNAL LAYERS — Candidates come from multiple ingestion layers:
+- "ai-research": LLM-generated research signals
+- "news": Real-world news from GDELT (global news database). These signals include tone/sentiment metadata in their metadata field: tone_positive, tone_negative, tone_polarity, tone_activity, tone_self_reference. Use tone data to reason about sentiment shifts — e.g., "sentiment around X is turning negative" or "coverage of Y is unusually polarized". When a news signal corroborates or contradicts signals from other layers, note this as evidence for or against selection.
+- Other layers: syndication, research, events, narrative, personal-graph, email-forward
+
 You have many tools available. ALWAYS call check_today_meetings first. Beyond that, use your judgment about which tools are worth calling for this particular set of candidates. Think carefully about whether each candidate is truly worth the user's limited attention. A mediocre briefing is worse than a short one.
 
 ${TOOL_DEFINITIONS}`;
@@ -444,7 +449,7 @@ async function executeQueryGoogleTrends(args: GoogleTrendsArgs): Promise<unknown
     }));
 
     // Related queries (best effort — don't fail the whole tool if this errors)
-    let relatedData: Record<string, { top: string[]; rising: string[] }> = {};
+    const relatedData: Record<string, { top: string[]; rising: string[] }> = {};
     try {
       const relatedRaw: string = await googleTrends.relatedQueries({
         keyword: cappedKeywords,

@@ -22,9 +22,10 @@ interface AdditionalOrg {
 
 interface PeerReviewStepProps {
   onComplete: () => void;
+  onBack?: () => void;
 }
 
-export function PeerReviewStep({ onComplete }: PeerReviewStepProps) {
+export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
   const [peers, setPeers] = useState<Peer[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<Record<string, Review>>({});
@@ -105,6 +106,17 @@ export function PeerReviewStep({ onComplete }: PeerReviewStepProps) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
         <div className="max-w-lg mx-auto w-full space-y-4">
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="mb-2 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10 12L6 8l4-4" />
+              </svg>
+              Back
+            </button>
+          )}
           {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
@@ -119,6 +131,17 @@ export function PeerReviewStep({ onComplete }: PeerReviewStepProps) {
   return (
     <div className="flex min-h-screen flex-col items-center px-6 py-12">
       <div className="w-full max-w-lg mx-auto">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 12L6 8l4-4" />
+            </svg>
+            Back
+          </button>
+        )}
         <div className="space-y-4">
           {peers.map((org) => (
             <div

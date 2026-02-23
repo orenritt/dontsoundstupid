@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface BriefingItem {
@@ -19,10 +20,18 @@ interface Briefing {
   generatedAt: string;
 }
 
+type PageState =
+  | "loading"
+  | "needs-onboarding"
+  | "no-briefing"
+  | "has-briefing";
+
 export default function BriefingPage() {
+  const router = useRouter();
+  const [pageState, setPageState] = useState<PageState>("loading");
   const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [expandedItems, setExpandedItems] = useState<Record<string, string>>(
     {}
   );
@@ -37,22 +46,58 @@ export default function BriefingPage() {
   }, []);
 
   useEffect(() => {
-    fetchBriefing();
+    loadPage();
   }, []);
 
-  async function fetchBriefing() {
-    setLoading(true);
-    const res = await fetch("/api/briefings/latest");
-    const data = await res.json();
-    setBriefing(data.briefing);
-    setLoading(false);
+  async function loadPage() {
+    try {
+      const [statusRes, briefingRes] = await Promise.all([
+        fetch("/api/user/status"),
+        fetch("/api/briefings/latest"),
+      ]);
+
+      if (!statusRes.ok) {
+        setPageState("needs-onboarding");
+        return;
+      }
+
+      const status = await statusRes.json();
+
+      if (status.onboardingStatus !== "completed") {
+        setPageState("needs-onboarding");
+        return;
+      }
+
+      if (briefingRes.ok) {
+        const data = await briefingRes.json();
+        if (data.briefing) {
+          setBriefing(data.briefing);
+          setPageState("has-briefing");
+          return;
+        }
+      }
+
+      setPageState("no-briefing");
+    } catch {
+      setPageState("needs-onboarding");
+    }
   }
 
   async function triggerPipeline() {
     setGenerating(true);
+    setGenerateError(null);
     try {
-      await fetch("/api/pipeline/trigger", { method: "POST" });
-      await fetchBriefing();
+      const res = await fetch("/api/pipeline/trigger", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        setGenerateError(
+          data.error || "Failed to generate briefing. Make sure your OpenAI API key is configured."
+        );
+        return;
+      }
+      await loadPage();
+    } catch {
+      setGenerateError("Something went wrong. Please try again.");
     } finally {
       setGenerating(false);
     }
@@ -85,7 +130,9 @@ export default function BriefingPage() {
         topic: item.topic,
       }),
     });
-    showToast(direction === "up" ? "More like this noted." : "Less like this noted.");
+    showToast(
+      direction === "up" ? "More like this noted." : "Less like this noted."
+    );
   }
 
   async function handleNotNovel(item: BriefingItem) {
@@ -101,7 +148,7 @@ export default function BriefingPage() {
     setDismissedItems((prev) => new Set(prev).add(item.id));
   }
 
-  if (loading) {
+  if (pageState === "loading") {
     return (
       <div className="min-h-screen bg-[#fafafa] flex items-center justify-center">
         <div className="animate-pulse text-gray-400">Loading...</div>
@@ -109,31 +156,55 @@ export default function BriefingPage() {
     );
   }
 
-  if (!briefing) {
+  if (pageState === "needs-onboarding") {
     return (
       <div className="min-h-screen bg-[#fafafa] flex items-center justify-center px-6">
         <div className="text-center max-w-md">
-          <div className="text-5xl mb-4">📡</div>
           <h1 className="text-xl font-semibold text-gray-900 mb-2">
-            Your first briefing is being prepared
+            Let&apos;s get to know you first
           </h1>
           <p className="text-gray-500 text-sm mb-6">
-            We&apos;re analyzing your profile and gathering intelligence. This
-            usually takes a minute.
+            Before we can build your briefing, we need to understand who you
+            are, what you do, and what you need to stay sharp on.
           </p>
           <button
-            onClick={triggerPipeline}
-            disabled={generating}
-            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+            onClick={() => router.push("/onboarding")}
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
           >
-            {generating ? "Generating..." : "Generate Now"}
+            Start Onboarding
           </button>
         </div>
       </div>
     );
   }
 
-  const date = new Date(briefing.generatedAt).toLocaleDateString("en-US", {
+  if (pageState === "no-briefing") {
+    return (
+      <div className="min-h-screen bg-[#fafafa] flex items-center justify-center px-6">
+        <div className="text-center max-w-md">
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">
+            Ready to generate your first briefing
+          </h1>
+          <p className="text-gray-500 text-sm mb-6">
+            Your profile is set up. Hit the button and we&apos;ll pull together
+            5 things you should know today.
+          </p>
+          {generateError && (
+            <p className="text-red-500 text-sm mb-4">{generateError}</p>
+          )}
+          <button
+            onClick={triggerPipeline}
+            disabled={generating}
+            className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+          >
+            {generating ? "Generating..." : "Generate My Briefing"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const date = new Date(briefing!.generatedAt).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -147,9 +218,9 @@ export default function BriefingPage() {
           <h1 className="text-2xl font-bold text-gray-900">Your Briefing</h1>
         </header>
 
-        <div className="space-y-1">
+        <div className="space-y-3">
           <AnimatePresence>
-            {briefing.items.map(
+            {briefing!.items.map(
               (item) =>
                 !dismissedItems.has(item.id) && (
                   <motion.div
