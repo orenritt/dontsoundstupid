@@ -1,23 +1,40 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { peerOrganizations, users } from "@/lib/schema";
-import { eq } from "drizzle-orm";
+import { peerOrganizations, users, userProfiles } from "@/lib/schema";
+import { eq, and } from "drizzle-orm";
 import { derivePeerOrganizations } from "@/lib/enrichment";
+import { toStringArray } from "@/lib/safe-parse";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const existing = await db
-    .select()
-    .from(peerOrganizations)
-    .where(eq(peerOrganizations.userId, session.user.id));
+  const url = new URL(request.url);
+  const refresh = url.searchParams.get("refresh") === "true";
 
-  if (existing.length > 0) {
-    return NextResponse.json({ peers: existing });
+  if (refresh) {
+    await db
+      .delete(peerOrganizations)
+      .where(
+        and(
+          eq(peerOrganizations.userId, session.user.id),
+          eq(peerOrganizations.source, "system-suggested")
+        )
+      );
+  }
+
+  if (!refresh) {
+    const existing = await db
+      .select()
+      .from(peerOrganizations)
+      .where(eq(peerOrganizations.userId, session.user.id));
+
+    if (existing.length > 0) {
+      return NextResponse.json({ peers: existing });
+    }
   }
 
   const [user] = await db
@@ -30,16 +47,33 @@ export async function GET() {
     return NextResponse.json({ peers: [] });
   }
 
+  const [profile] = await db
+    .select()
+    .from(userProfiles)
+    .where(eq(userProfiles.userId, session.user.id))
+    .limit(1);
+
+  const profileContext = profile
+    ? {
+        topics: toStringArray(profile.parsedTopics),
+        initiatives: toStringArray(profile.parsedInitiatives),
+        concerns: toStringArray(profile.parsedConcerns),
+        weakAreas: toStringArray(profile.parsedWeakAreas),
+        expertAreas: toStringArray(profile.parsedExpertAreas),
+        knowledgeGaps: toStringArray(profile.parsedKnowledgeGaps),
+      }
+    : undefined;
+
   const derived = await derivePeerOrganizations(
     user.company,
     undefined,
     user.title ?? undefined,
-    undefined
+    undefined,
+    profileContext
   );
 
-  const inserted = [];
   for (const org of derived) {
-    const [row] = await db
+    await db
       .insert(peerOrganizations)
       .values({
         userId: session.user.id,
@@ -48,11 +82,15 @@ export async function GET() {
         description: org.description,
         entityType: org.entityType || "company",
       })
-      .returning();
-    inserted.push(row);
+      .onConflictDoNothing();
   }
 
-  return NextResponse.json({ peers: inserted });
+  const allPeers = await db
+    .select()
+    .from(peerOrganizations)
+    .where(eq(peerOrganizations.userId, session.user.id));
+
+  return NextResponse.json({ peers: allPeers });
 }
 
 export async function POST(request: Request) {

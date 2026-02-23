@@ -175,21 +175,53 @@ export async function enrichCompany(
   };
 }
 
+export interface PeerDerivationContext {
+  topics?: string[];
+  initiatives?: string[];
+  concerns?: string[];
+  weakAreas?: string[];
+  expertAreas?: string[];
+  knowledgeGaps?: string[];
+}
+
 export async function derivePeerOrganizations(
   userCompany: string,
   userIndustry: string | undefined,
   userTitle: string | undefined,
-  companySize: string | undefined
+  companySize: string | undefined,
+  profileContext?: PeerDerivationContext
 ): Promise<PeerOrg[]> {
   const role = userTitle || "professional";
   const industry = userIndustry || "technology";
   const size = companySize || "unknown";
 
-  const prompt = `A ${role} at "${userCompany}" in the ${industry} industry (company size: ${size}) needs to build an intelligence radar. Suggest 12-15 entities across ALL of these categories:
+  let profileSection = "";
+  if (profileContext) {
+    const parts: string[] = [];
+    if (profileContext.topics?.length)
+      parts.push(`- Topics they track: ${profileContext.topics.join(", ")}`);
+    if (profileContext.initiatives?.length)
+      parts.push(`- Current initiatives: ${profileContext.initiatives.join("; ")}`);
+    if (profileContext.concerns?.length)
+      parts.push(`- Key concerns: ${profileContext.concerns.join("; ")}`);
+    if (profileContext.expertAreas?.length)
+      parts.push(`- Expert in: ${profileContext.expertAreas.join(", ")}`);
+    if (profileContext.weakAreas?.length)
+      parts.push(`- Wants to learn about: ${profileContext.weakAreas.join(", ")}`);
+    if (profileContext.knowledgeGaps?.length)
+      parts.push(`- Knowledge gaps: ${profileContext.knowledgeGaps.join(", ")}`);
+    if (parts.length > 0) {
+      profileSection = `\n\nHere is what this person cares about professionally:\n${parts.join("\n")}`;
+    }
+  }
 
-1. **Companies** (4-5): Direct competitors and adjacent-market players worth monitoring.
+  const prompt = `A ${role} at "${userCompany}" in the ${industry} industry (company size: ${size}) needs to build an intelligence radar.${profileSection}
+
+Based on their SPECIFIC role, company, and professional interests, suggest 12-15 entities across ALL of these categories. These must be REAL entities — real companies, real publications, real people, real conferences. Do not make up entities.
+
+1. **Companies** (4-5): Direct competitors and adjacent-market players worth monitoring. These should be real companies that actually compete with or are adjacent to "${userCompany}".
 2. **Publications** (2-3): Trade publications, industry newsletters, or blogs that cover this space. Include the website domain.
-3. **Analysts/Influencers** (2-3): Individual thought leaders, analysts, or commentators this person should follow. Use their personal site or primary platform domain.
+3. **Analysts/Influencers** (2-3): Real individual thought leaders, analysts, or commentators this person should follow. Use their personal site or primary platform domain.
 4. **Conferences** (1-2): Key industry events or conferences relevant to this role.
 5. **Regulatory/Research** (1-2): Regulatory bodies, standards organizations, or research groups whose output matters.
 6. **Communities** (1): Industry forums, Slack groups, subreddits, or professional communities.

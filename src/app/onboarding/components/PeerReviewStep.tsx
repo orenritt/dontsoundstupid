@@ -72,8 +72,13 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
   const [expandedComment, setExpandedComment] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/onboarding/peers")
+  const loadPeers = (refresh = false) => {
+    setLoading(true);
+    setReviews({});
+    setComments({});
+    setExpandedComment(null);
+    const url = refresh ? "/api/onboarding/peers?refresh=true" : "/api/onboarding/peers";
+    fetch(url)
       .then((res) => res.json())
       .then((data) => {
         setPeers(
@@ -84,6 +89,10 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
         );
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    loadPeers();
   }, []);
 
   const groupedPeers = useMemo(() => {
@@ -266,12 +275,20 @@ export function PeerReviewStep({ onComplete, onBack }: PeerReviewStepProps) {
           ))}
         </div>
 
-        <button
-          onClick={() => setShowAddOrg(true)}
-          className="mt-4 text-sm text-blue-600 hover:text-blue-700 underline"
-        >
-          Add an entity we missed
-        </button>
+        <div className="mt-4 flex items-center gap-4">
+          <button
+            onClick={() => setShowAddOrg(true)}
+            className="text-sm text-blue-600 hover:text-blue-700 underline"
+          >
+            Add an entity we missed
+          </button>
+          <button
+            onClick={() => loadPeers(true)}
+            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            Regenerate suggestions
+          </button>
+        </div>
 
         {showAddOrg && (
           <div className="mt-4 p-4 bg-white rounded-xl shadow-sm border border-gray-100 space-y-3">
