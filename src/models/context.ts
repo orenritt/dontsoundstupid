@@ -16,6 +16,8 @@ export interface IntelligenceGoal {
   active: boolean;
 }
 
+import type { FeedbackHistory } from "./feedback.js";
+
 export interface ContextLayer {
   initiatives: Initiative[];
   concerns: Concern[];
@@ -23,6 +25,7 @@ export interface ContextLayer {
   knowledgeGaps: string[];
   intelligenceGoals: IntelligenceGoal[];
   geographicRelevance: string[];
+  feedbackHistory: FeedbackHistory;
   updatedAt: string;
   history: ContextSnapshot[];
 }

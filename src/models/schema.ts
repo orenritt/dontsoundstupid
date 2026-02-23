@@ -59,7 +59,29 @@ const companyEnrichmentSchema = z.object({
 const identityLayerSchema = z.object({
   user: enrichedPersonSchema,
   company: companyEnrichmentSchema,
-  impressList: z.array(enrichedPersonSchema),
+});
+
+const impressContactSourceSchema = z.enum([
+  "onboarding",
+  "user-added",
+  "promoted-from-calendar",
+]);
+
+const impressContactSchema = z.object({
+  person: enrichedPersonSchema,
+  source: impressContactSourceSchema,
+  tier: z.enum(["core", "temporary"]),
+  status: z.enum(["active", "inactive"]),
+  linkedMeetingId: z.string().nullable(),
+  activeFrom: z.string().datetime().nullable(),
+  activeUntil: z.string().datetime().nullable(),
+  addedAt: z.string().datetime(),
+  removedAt: z.string().datetime().nullable(),
+});
+
+const impressListSchema = z.object({
+  core: z.array(impressContactSchema),
+  temporary: z.array(impressContactSchema),
 });
 
 const intelligenceGoalCategorySchema = z.enum([
@@ -79,6 +101,51 @@ const intelligenceGoalSchema = z.object({
   detail: z.string().nullable(),
   addedAt: z.string().datetime(),
   active: z.boolean(),
+});
+
+const deepDiveRequestSchema = z.object({
+  type: z.literal("deep-dive"),
+  briefingItemId: z.string().uuid(),
+  topic: z.string(),
+  category: z.string(),
+  timestamp: z.string().datetime(),
+});
+
+const tuneMoreFeedbackSchema = z.object({
+  type: z.literal("tune-more"),
+  briefingItemId: z.string().uuid(),
+  topic: z.string(),
+  category: z.string(),
+  comment: z.string().nullable(),
+  timestamp: z.string().datetime(),
+});
+
+const tuneLessFeedbackSchema = z.object({
+  type: z.literal("tune-less"),
+  briefingItemId: z.string().uuid(),
+  topic: z.string(),
+  category: z.string(),
+  comment: z.string().nullable(),
+  timestamp: z.string().datetime(),
+});
+
+const feedbackSignalSchema = z.discriminatedUnion("type", [
+  deepDiveRequestSchema,
+  tuneMoreFeedbackSchema,
+  tuneLessFeedbackSchema,
+]);
+
+const relevanceAdjustmentSchema = z.object({
+  topic: z.string(),
+  category: z.string(),
+  weight: z.number(),
+  signalCount: z.number(),
+  lastUpdated: z.string().datetime(),
+});
+
+const feedbackHistorySchema = z.object({
+  signals: z.array(feedbackSignalSchema),
+  learnedAdjustments: z.array(relevanceAdjustmentSchema),
 });
 
 const initiativeSchema = z.object({
@@ -109,6 +176,7 @@ const contextLayerSchema = z.object({
   knowledgeGaps: z.array(z.string()),
   intelligenceGoals: z.array(intelligenceGoalSchema),
   geographicRelevance: z.array(z.string()),
+  feedbackHistory: feedbackHistorySchema,
   updatedAt: z.string().datetime(),
   history: z.array(contextSnapshotSchema),
 });
@@ -227,6 +295,25 @@ const meetingIntelligenceSchema = z.object({
   generatedAt: z.string().datetime(),
 });
 
+const briefingItemSchema = z.object({
+  id: z.string().uuid(),
+  topic: z.string(),
+  category: z.string(),
+  source: z.string(),
+  summary: z.string(),
+  content: z.string(),
+  relevanceScore: z.number(),
+  metadata: z.record(z.string(), z.string()),
+});
+
+const briefingSchema = z.object({
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
+  items: z.array(briefingItemSchema),
+  generatedAt: z.string().datetime(),
+  deliveredAt: z.string().datetime().nullable(),
+});
+
 const calendarDataSchema = z.object({
   connection: calendarConnectionSchema.nullable(),
   upcomingMeetings: z.array(meetingSchema),
@@ -236,6 +323,7 @@ const calendarDataSchema = z.object({
 export const userProfileSchema = z.object({
   id: z.string().uuid(),
   identity: identityLayerSchema,
+  impressList: impressListSchema,
   context: contextLayerSchema,
   peers: peerListSchema,
   delivery: deliveryPreferencesSchema,
@@ -246,3 +334,92 @@ export const userProfileSchema = z.object({
 });
 
 export type ValidatedUserProfile = z.infer<typeof userProfileSchema>;
+
+const signalLayerSchema = z.enum([
+  "syndication",
+  "research",
+  "narrative",
+  "events",
+  "personal-graph",
+  "ai-research",
+]);
+
+const researchProviderSchema = z.enum(["perplexity", "tavily"]);
+
+const queryDerivedFromSchema = z.enum([
+  "intelligence-goal",
+  "impress-list",
+  "peer-org",
+  "initiative",
+  "industry",
+  "deep-dive",
+]);
+
+const citationSchema = z.object({
+  url: z.string().url(),
+  title: z.string().nullable(),
+  snippet: z.string().nullable(),
+});
+
+export const researchQuerySchema = z.object({
+  id: z.string().uuid(),
+  queryText: z.string(),
+  derivedFrom: queryDerivedFromSchema,
+  profileReference: z.string(),
+  provider: researchProviderSchema,
+  templateId: z.string().nullable(),
+  contentHash: z.string(),
+  createdAt: z.string().datetime(),
+});
+
+export const researchResponseSchema = z.object({
+  id: z.string().uuid(),
+  queryId: z.string().uuid(),
+  provider: researchProviderSchema,
+  content: z.string(),
+  citations: z.array(citationSchema),
+  rawResponse: z.string(),
+  receivedAt: z.string().datetime(),
+});
+
+export const signalSchema = z.object({
+  id: z.string().uuid(),
+  layer: signalLayerSchema,
+  sourceUrl: z.string().url(),
+  title: z.string(),
+  content: z.string(),
+  summary: z.string(),
+  metadata: z.record(z.string(), z.string()),
+  embedding: z.array(z.number()).nullable(),
+  embeddingModel: z.string().nullable(),
+  publishedAt: z.string().datetime(),
+  ingestedAt: z.string().datetime(),
+});
+
+export const signalDedupSchema = z.object({
+  signalId: z.string().uuid(),
+  duplicateOfId: z.string().uuid(),
+  similarity: z.number().min(0).max(1),
+  detectedAt: z.string().datetime(),
+});
+
+const triggerReasonSchema = z.enum([
+  "followed-org",
+  "peer-org",
+  "impress-list",
+  "intelligence-goal",
+  "industry-scan",
+  "personal-graph",
+]);
+
+export const signalProvenanceSchema = z.object({
+  id: z.string().uuid(),
+  signalId: z.string().uuid(),
+  userId: z.string().uuid(),
+  triggerReason: triggerReasonSchema,
+  profileReference: z.string(),
+  createdAt: z.string().datetime(),
+});
+
+export type ValidatedSignal = z.infer<typeof signalSchema>;
+export type ValidatedSignalProvenance = z.infer<typeof signalProvenanceSchema>;

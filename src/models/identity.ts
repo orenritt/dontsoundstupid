@@ -56,5 +56,4 @@ export interface JobPosting {
 export interface IdentityLayer {
   user: EnrichedPerson;
   company: CompanyEnrichment;
-  impressList: EnrichedPerson[];
 }
