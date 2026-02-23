@@ -38,6 +38,7 @@ const PROMPTS = [
 ];
 
 type Phase = "answering" | "choosing" | "done";
+type InputMode = "voice" | "typing";
 
 function Orb({ size = 80, photoUrl, isPulsing = false }: { size?: number; photoUrl?: string; isPulsing?: boolean }) {
   const r = size / 2;
@@ -64,11 +65,20 @@ function Orb({ size = 80, photoUrl, isPulsing = false }: { size?: number; photoU
   );
 }
 
+function MicIcon({ className = "h-8 w-8" }: { className?: string }) {
+  return (
+    <svg className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z" />
+    </svg>
+  );
+}
+
 export function ConversationStep({ userPhoto, onComplete }: ConversationStepProps) {
   const [promptIndex, setPromptIndex] = useState(0);
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [completedPairs, setCompletedPairs] = useState<{ question: string; answer: string }[]>([]);
   const [phase, setPhase] = useState<Phase>("answering");
+  const [inputMode, setInputMode] = useState<InputMode>("voice");
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,6 +86,8 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
   const [livePartial, setLivePartial] = useState("");
 
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const wantRecordingRef = useRef(false);
+  const lastFinalIndexRef = useRef(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const currentPrompt = PROMPTS[promptIndex];
@@ -84,6 +96,7 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
   const inputMethod = usedVoice ? "voice" : "text";
 
   const stopRecording = useCallback(() => {
+    wantRecordingRef.current = false;
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setRecording(false);
@@ -98,18 +111,22 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = true;
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = "en-US";
+    recognition.maxAlternatives = 1;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let finalText = "";
       let interimText = "";
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalText += result[0].transcript;
+          if (i >= lastFinalIndexRef.current) {
+            finalText += result[0].transcript;
+            lastFinalIndexRef.current = i + 1;
+          }
         } else {
           interimText += result[0].transcript;
         }
@@ -128,35 +145,48 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === "not-allowed") {
         setError("Microphone access denied. Please allow microphone access and try again.");
+        stopRecording();
       } else if (event.error === "no-speech") {
-        // Silence timeout — not a real error, restart automatically
         return;
       } else if (event.error !== "aborted") {
         setError(`Voice error: ${event.error}`);
+        stopRecording();
       }
-      stopRecording();
     };
 
     recognition.onend = () => {
-      if (recognitionRef.current) {
+      setLivePartial("");
+      if (wantRecordingRef.current) {
+        lastFinalIndexRef.current = 0;
         try {
-          recognitionRef.current.start();
+          const nextRecognition = new SpeechRecognition();
+          nextRecognition.continuous = false;
+          nextRecognition.interimResults = true;
+          nextRecognition.lang = "en-US";
+          nextRecognition.maxAlternatives = 1;
+          nextRecognition.onresult = recognition.onresult;
+          nextRecognition.onerror = recognition.onerror;
+          nextRecognition.onend = recognition.onend;
+          recognitionRef.current = nextRecognition;
+          nextRecognition.start();
           return;
         } catch {
-          // Failed to restart — fall through to cleanup
+          // Failed to restart
         }
       }
       setRecording(false);
-      setLivePartial("");
       recognitionRef.current = null;
     };
 
+    wantRecordingRef.current = true;
+    lastFinalIndexRef.current = 0;
     recognitionRef.current = recognition;
     try {
       recognition.start();
     } catch (err) {
       setError(`Voice error: ${err instanceof Error ? err.message : String(err)}`);
       recognitionRef.current = null;
+      wantRecordingRef.current = false;
       return;
     }
     setRecording(true);
@@ -169,14 +199,17 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
   }, [recording, startRecording, stopRecording]);
 
   useEffect(() => {
-    return () => { recognitionRef.current?.stop(); };
+    return () => {
+      wantRecordingRef.current = false;
+      recognitionRef.current?.stop();
+    };
   }, []);
 
   useEffect(() => {
-    if (phase === "answering") {
+    if (phase === "answering" && inputMode === "typing") {
       setTimeout(() => textareaRef.current?.focus(), 350);
     }
-  }, [phase, promptIndex]);
+  }, [phase, promptIndex, inputMode]);
 
   const commitAnswer = useCallback(() => {
     if (!canSubmitAnswer) return;
@@ -200,11 +233,13 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
     setPhase("answering");
   }, []);
 
-  const submitAll = async () => {
-    const allPairs = phase === "done"
-      ? completedPairs
-      : completedPairs;
+  const switchToTyping = useCallback(() => {
+    stopRecording();
+    setInputMode("typing");
+  }, [stopRecording]);
 
+  const submitAll = async () => {
+    const allPairs = completedPairs;
     if (allPairs.length === 0 || loading) return;
 
     setLoading(true);
@@ -230,6 +265,8 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
       setLoading(false);
     }
   };
+
+  const showingVoiceMode = inputMode === "voice" && phase === "answering";
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
@@ -262,10 +299,9 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
       </div>
 
       <AnimatePresence mode="wait">
-        {/* Phase: answering a question */}
         {phase === "answering" && (
           <motion.div
-            key={`answering-${promptIndex}`}
+            key={`answering-${promptIndex}-${inputMode}`}
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
@@ -284,74 +320,135 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
             <h1 className="mb-2 text-center text-[24px] font-medium text-white">
               {currentPrompt.question}
             </h1>
-            <p className="mb-6 max-w-md text-center text-base text-gray-500">
+            <p className="mb-8 max-w-md text-center text-base text-gray-500">
               {currentPrompt.subtext}
             </p>
 
-            <div className="relative w-full">
-              <textarea
-                ref={textareaRef}
-                value={currentAnswer}
-                onChange={(e) => setCurrentAnswer(e.target.value)}
-                placeholder={currentPrompt.placeholder}
-                rows={4}
-                className="min-h-[100px] w-full resize-y rounded-lg border border-white/10 bg-white/5 px-4 py-3 pr-14 text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none focus:ring-1 focus:ring-white/20"
-                disabled={loading}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSubmitAnswer) {
-                    e.preventDefault();
-                    commitAnswer();
-                  }
-                }}
-              />
-              <div className="absolute right-3 top-3 flex flex-col items-end gap-1">
-                <motion.button
-                  type="button"
-                  onClick={toggleRecording}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors ${recording ? "bg-red-500/20 hover:bg-red-500/30" : "bg-white/10 hover:bg-white/20"}`}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {recording ? (
-                    <motion.span
-                      className="h-3 w-3 rounded-full bg-red-500"
-                      animate={{ opacity: [1, 0.4, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                    />
-                  ) : (
-                    <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z" />
-                    </svg>
-                  )}
-                </motion.button>
-                {completedPairs.length === 0 && (
-                  <span className="text-[12px] text-gray-500">
-                    Try voice — people share more.
-                  </span>
+            {showingVoiceMode ? (
+              <>
+                {/* Big centered mic button */}
+                <div className="flex flex-col items-center gap-6">
+                  <motion.button
+                    type="button"
+                    onClick={toggleRecording}
+                    className={`relative flex h-24 w-24 items-center justify-center rounded-full transition-all ${
+                      recording
+                        ? "bg-red-500/20 text-red-400 shadow-[0_0_40px_rgba(239,68,68,0.25)]"
+                        : "bg-white/10 text-white hover:bg-white/15 hover:shadow-[0_0_30px_rgba(255,255,255,0.1)]"
+                    }`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.92 }}
+                  >
+                    {recording && (
+                      <motion.span
+                        className="absolute inset-0 rounded-full border-2 border-red-500/40"
+                        animate={{ scale: [1, 1.3, 1], opacity: [0.6, 0, 0.6] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                    )}
+                    {recording ? (
+                      <motion.span
+                        className="h-6 w-6 rounded-sm bg-red-400"
+                        animate={{ opacity: [1, 0.5, 1] }}
+                        transition={{ duration: 1.2, repeat: Infinity }}
+                      />
+                    ) : (
+                      <MicIcon className="h-10 w-10" />
+                    )}
+                  </motion.button>
+
+                  <p className="text-sm text-gray-500">
+                    {recording ? "Listening... tap to stop" : "Tap to start talking"}
+                  </p>
+                </div>
+
+                {/* Live transcript area */}
+                {(currentAnswer || (livePartial && recording)) && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-6 w-full rounded-lg border border-white/10 bg-white/5 px-4 py-3"
+                  >
+                    <p className="text-sm text-white/80">
+                      {currentAnswer}
+                      {livePartial && recording && (
+                        <span className="text-white/40"> {livePartial}</span>
+                      )}
+                    </p>
+                  </motion.div>
                 )}
-              </div>
-            </div>
 
-            {livePartial && recording && (
-              <p className="mt-3 w-full text-sm italic text-gray-400">{livePartial}</p>
+                {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+
+                {/* "Prefer to type" link + Done button row */}
+                <div className="mt-6 flex w-full items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={switchToTyping}
+                    className="shrink-0 rounded-lg border border-white/10 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-white/20 hover:text-white/70"
+                  >
+                    I&apos;ll type instead
+                  </button>
+                  <motion.button
+                    type="button"
+                    disabled={!canSubmitAnswer || loading}
+                    onClick={commitAnswer}
+                    className="flex-1 rounded-lg bg-white px-6 py-3 font-medium text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                    whileHover={canSubmitAnswer ? { scale: 1.02 } : {}}
+                    whileTap={canSubmitAnswer ? { scale: 0.98 } : {}}
+                  >
+                    Done with this one
+                  </motion.button>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Typing mode */}
+                <div className="relative w-full">
+                  <textarea
+                    ref={textareaRef}
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                    placeholder={currentPrompt.placeholder}
+                    rows={5}
+                    className="min-h-[120px] w-full resize-y rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-white placeholder:text-gray-500 focus:border-white/20 focus:outline-none focus:ring-1 focus:ring-white/20"
+                    disabled={loading}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canSubmitAnswer) {
+                        e.preventDefault();
+                        commitAnswer();
+                      }
+                    }}
+                  />
+                </div>
+
+                {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+
+                <div className="mt-4 flex w-full items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setInputMode("voice")}
+                    className="flex shrink-0 items-center gap-2 rounded-lg border border-white/10 px-4 py-3 text-sm text-gray-400 transition-colors hover:border-white/20 hover:text-white/70"
+                  >
+                    <MicIcon className="h-4 w-4" />
+                    Use voice
+                  </button>
+                  <motion.button
+                    type="button"
+                    disabled={!canSubmitAnswer || loading}
+                    onClick={commitAnswer}
+                    className="flex-1 rounded-lg bg-white px-6 py-3 font-medium text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                    whileHover={canSubmitAnswer ? { scale: 1.02 } : {}}
+                    whileTap={canSubmitAnswer ? { scale: 0.98 } : {}}
+                  >
+                    Done with this one
+                  </motion.button>
+                </div>
+              </>
             )}
-
-            {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-
-            <motion.button
-              type="button"
-              disabled={!canSubmitAnswer || loading}
-              onClick={commitAnswer}
-              className="mt-4 w-full rounded-lg bg-white px-6 py-3 font-medium text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
-              whileHover={canSubmitAnswer ? { scale: 1.02 } : {}}
-              whileTap={canSubmitAnswer ? { scale: 0.98 } : {}}
-            >
-              Done with this one
-            </motion.button>
           </motion.div>
         )}
 
-        {/* Phase: choose to continue or finish */}
         {phase === "choosing" && (
           <motion.div
             key="choosing"
@@ -398,7 +495,6 @@ export function ConversationStep({ userPhoto, onComplete }: ConversationStepProp
           </motion.div>
         )}
 
-        {/* Phase: ran out of prompts, auto-submit */}
         {phase === "done" && (
           <motion.div
             key="done"
