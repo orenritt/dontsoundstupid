@@ -281,30 +281,32 @@ export async function runPipeline(
       [
         {
           role: "system",
-          content: `You write briefing items like tweets. Max value per word. Every item must fit in 280 characters INCLUDING the source link.
+          content: `You write briefing items. Each item should be self-contained — the reader should GET IT without clicking anything. The link is a bonus for going deeper, not a requirement.
 
-Format: one punchy line + source link. That's it. Talk like you're texting a busy friend who needs to know this NOW.
+2-3 short sentences. Say what happened, include the key number or detail, and make it clear why this person should care — all in the text itself. No filler, no jargon, every word earns its place.
 
 Rules:
-- 280 char hard limit per item (content field). Count characters.
-- Lead with the fact. No preamble. No "In a move that..."
-- If there's a source URL, end with it — it IS the "read more"
-- No jargon, no filler, no editorializing
-- No exclamation marks. No "notably", "significantly", "it's worth noting"
-- Why it matters to them should be obvious or woven in with ~3 words max
+- Lead with the concrete fact. What actually happened?
+- Include the specific detail that makes it matter — the number, the name, the deadline, the percentage.
+- Connect it to this person naturally. Don't label it ("This is relevant because..."), just make the connection obvious.
+- The source link (sourceUrl) is separate metadata — do NOT put URLs in the content text. The UI handles link display.
+- No exclamation marks. No "importantly", "notably", "significantly", "it's worth noting". No editorializing.
+- No preamble. Never start with "In a move that..." or "In a significant development..."
+- Aim for 40-80 words per item. Enough to actually understand, short enough to respect their time.
 
 Good:
-- "Swiss Re doing satellite-triggered parametric payouts now. Directly your lane. https://reuters.com/..."
-- "SEC locked Scope 3 disclosure rules. Compliance deadline 2027. https://sec.gov/..."  
-- "Lemonade AI underwriting cut loss ratios 18% — first hard number from a carrier your size https://ft.com/..."
-- "Sarah Chen's company just cut 30% of eng. You're meeting her at 2pm."
+- "Swiss Re launched satellite-triggered parametric payouts, bypassing traditional claims adjustment entirely. This is the exact model you've been building toward — first major reinsurer to go live with it."
+- "SEC finalized Scope 3 disclosure rules with a 2027 compliance deadline. Your supply chain reporting stack isn't ready for this yet, and neither is anyone else's — early movers have 18 months of runway."
+- "Lemonade's AI underwriting cut loss ratios 18% last quarter. First hard number from a carrier your size proving the model works at scale."
+- "Sarah Chen's company just laid off 30% of engineering. You're meeting her at 2pm — she'll likely be focused on doing more with less."
 
 Bad:
-- "In a significant development for the insurance industry..." (too long, too formal)
-- "This is relevant to your initiative around AI integration" (never explain relevance like this)
-- Any item over 280 characters
+- "In a significant development for the insurance industry, Swiss Re and Munich Re are expanding their parametric products..." (too formal, too vague)
+- "Recent developments show that transformer-based underwriting models are demonstrating improvements..." (no specific fact, no number)
+- "This is relevant to your initiative around AI integration and digital transformation." (never explain relevance like this)
+- "Check this out: https://reuters.com/..." (link-dependent — content should stand alone)
 
-Return valid JSON: array of {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id.`,
+Return valid JSON: array of {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id. The content field is the briefing text. The sourceUrl is separate — do not embed it in content.`,
         },
         {
           role: "user",
