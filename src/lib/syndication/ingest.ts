@@ -7,12 +7,15 @@ import {
   newsletterRegistry,
   peerOrganizations,
   impressContacts,
+  userProfiles,
   users,
   signals,
   signalProvenance,
 } from "../schema";
 import { eq, and, lte, sql } from "drizzle-orm";
 import { discoverFeeds } from "./feed-discovery";
+import { matchesContentUniverse } from "../news-ingestion/ingest";
+import type { ContentUniverse } from "../../models/content-universe";
 
 const parser = new Parser({
   timeout: 10000,
@@ -188,6 +191,20 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
     errors: 0,
   };
 
+  // Cache content universes per user for filtering
+  const universeCache = new Map<string, ContentUniverse | null>();
+  async function getUniverse(userId: string): Promise<ContentUniverse | null> {
+    if (universeCache.has(userId)) return universeCache.get(userId)!;
+    const [profile] = await db
+      .select({ contentUniverse: userProfiles.contentUniverse })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId))
+      .limit(1);
+    const universe = (profile?.contentUniverse as ContentUniverse) ?? null;
+    universeCache.set(userId, universe);
+    return universe;
+  }
+
   for (const feed of activeFeeds) {
     try {
       const parsed = await parser.parseURL(feed.feedUrl);
@@ -203,6 +220,17 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
         })
         .from(userFeedSubscriptions)
         .where(eq(userFeedSubscriptions.feedId, feed.id));
+
+      // Load content universes for all subscribers to this feed
+      const subscriberUniverses = new Map<string, ContentUniverse | null>();
+      for (const sub of feedSubscribers) {
+        subscriberUniverses.set(sub.userId, await getUniverse(sub.userId));
+      }
+      for (const ns of newsletterSubs) {
+        if (!subscriberUniverses.has(ns.userId)) {
+          subscriberUniverses.set(ns.userId, await getUniverse(ns.userId));
+        }
+      }
 
       const items = parsed.items || [];
       const lastItemDate = feed.lastItemDate
@@ -221,12 +249,22 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
           newestDate = pubDate;
         }
 
+        const title = item.title || "Untitled";
+        const summary = item.contentSnippet || item.title || "";
+
+        // Check if this article matches ANY subscriber's content universe
+        const allUniverses = [...subscriberUniverses.values()];
+        const matchesAny = allUniverses.length === 0 || allUniverses.some(
+          (u) => matchesContentUniverse(title, summary, u)
+        );
+        if (!matchesAny) continue;
+
         const sourceUrl = item.link || "";
         const synSignal: SyndicationSignal = {
           layer: "syndication",
-          title: item.title || "Untitled",
+          title,
           content: item.content || item.contentSnippet || "",
-          summary: item.contentSnippet || item.title || "",
+          summary,
           sourceUrl,
           publishedAt: pubDate?.toISOString() || null,
           metadata: {
@@ -241,7 +279,6 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
         result.signals.push(synSignal);
         result.newItems++;
 
-        // Persist to signals table
         if (sourceUrl) {
           try {
             const [inserted] = await db
@@ -264,6 +301,10 @@ export async function pollSyndicationFeeds(): Promise<IngestionResult> {
 
             if (inserted) {
               for (const sub of feedSubscribers) {
+                // Only create provenance if this article matches this user's universe
+                const subUniverse = subscriberUniverses.get(sub.userId);
+                if (!matchesContentUniverse(title, summary, subUniverse ?? null)) continue;
+
                 const reason = sub.derivedFrom === "impress-list" ? "impress-list" : "peer-org";
                 await db
                   .insert(signalProvenance)

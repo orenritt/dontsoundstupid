@@ -38,13 +38,20 @@ export function matchesContentUniverse(title: string, summary: string, universe:
 
   const text = `${title} ${summary}`.toLowerCase();
 
-  const hasCoreTopic = universe.coreTopics.some((topic) => text.includes(topic.toLowerCase()));
-  if (hasCoreTopic) return true;
-
   const hasExclusion = universe.exclusions.some((exc) => text.includes(exc.toLowerCase()));
   if (hasExclusion) return false;
 
-  return false;
+  // Check for core topic relevance — require at least one topic match
+  // Split multi-word topics into words and require all words present for that topic
+  const hasCoreTopic = universe.coreTopics.some((topic) => {
+    const topicLower = topic.toLowerCase();
+    if (text.includes(topicLower)) return true;
+    // For multi-word topics, check if all significant words appear
+    const words = topicLower.split(/\s+/).filter((w) => w.length > 3);
+    return words.length > 1 && words.every((w) => text.includes(w));
+  });
+
+  return hasCoreTopic;
 }
 
 function derivedFromToTriggerReason(derivedFrom: NewsQueryDerivedFrom): TriggerReason {

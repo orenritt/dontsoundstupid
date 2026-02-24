@@ -18,8 +18,8 @@ import { createLogger } from "../logger";
 import type { ContentUniverse } from "../../models/content-universe";
 
 const log = createLogger("ai-research");
-const MAX_PERPLEXITY_QUERIES = 5;
-const MAX_TAVILY_QUERIES = 10;
+const MAX_PERPLEXITY_QUERIES = 15;
+const MAX_TAVILY_QUERIES = 20;
 
 interface RawSignal {
   title: string;
@@ -129,7 +129,17 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
   ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length, hasContentUniverse: !!contentUniverse }, "Deriving research queries");
   const queries = await deriveEnrichedResearchQueries(profileContext, contentUniverse);
 
-  const systemContext = `You are a research assistant for a ${user.title || "professional"} at ${user.company || "a company"}. Provide concise, factual intelligence. Focus on the last 24-48 hours of developments.`;
+  const universeContext = contentUniverse
+    ? `\n\nTheir content universe: ${contentUniverse.definition}\nCore topics they track: ${contentUniverse.coreTopics.join(", ")}${contentUniverse.exclusions.length > 0 ? `\nTopics to EXCLUDE: ${contentUniverse.exclusions.join(", ")}` : ""}`
+    : "";
+  const systemContext = `You are an intelligence analyst briefing a ${user.title || "professional"} at ${user.company || "a company"}.${universeContext}
+
+Your job: find things they NEED to know but probably DON'T yet. Prioritize by:
+1. Novel information — things that just happened or just became known
+2. Direct relevance — connects to their specific work, not just their broad industry
+3. Actionability — they could or should do something with this knowledge
+
+Be specific and factual. Include concrete numbers, names, dates. No filler. Focus on the last 24-48 hours.`;
 
   const allPerplexity = [...meetingPrepQueries, ...queries.perplexityQueries];
   const cappedPerplexity = allPerplexity.slice(
@@ -163,7 +173,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
           const result = await searchTavily(query, {
             topic: "news",
             timeRange: "week",
-            maxResults: 5,
+            maxResults: 10,
           });
           if (!result) return null;
           return { query, results: result.results };

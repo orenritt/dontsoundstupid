@@ -24,9 +24,13 @@ function contentHash(queryText: string): string {
 }
 
 function buildTopicScope(universe: ContentUniverse): string {
-  const top = universe.coreTopics.slice(0, 3);
+  const top = universe.coreTopics.slice(0, 5);
   if (top.length === 0) return "";
   return `(${top.map((t) => `"${t}"`).join(" OR ")})`;
+}
+
+function buildUniverseContext(universe: ContentUniverse): string {
+  return universe.coreTopics.slice(0, 5).join(", ");
 }
 
 async function loadProfileWithUniverse(userId: string): Promise<{
@@ -64,12 +68,23 @@ async function deriveFromImpressList(userId: string, universe: ContentUniverse |
     if (contact.company && !companies.has(contact.company.toLowerCase())) {
       companies.add(contact.company.toLowerCase());
       const base = `"${contact.company}"`;
+      // Always scope to content universe — without it, "Google" returns noise
       queries.push({
         queryText: scope ? `${base} AND ${scope}` : base,
         derivedFrom: "impress-list",
         profileReference: contact.company,
         geographicFilters: [],
       });
+
+      // Also generate a role-specific query if we have universe context
+      if (universe && contact.title) {
+        queries.push({
+          queryText: `"${contact.company}" "${contact.title}" ${buildUniverseContext(universe)}`,
+          derivedFrom: "impress-list",
+          profileReference: `${contact.company} - ${contact.title}`,
+          geographicFilters: [],
+        });
+      }
     }
   }
 
@@ -96,15 +111,15 @@ async function deriveFromPeerOrgs(userId: string, universe: ContentUniverse | nu
         break;
       case "publication":
       case "community":
-        base = peer.name;
+        base = scope ? `${peer.name} AND ${scope}` : peer.name;
         break;
       default:
-        base = `"${peer.name}"`;
+        base = scope ? `"${peer.name}" AND ${scope}` : `"${peer.name}"`;
         break;
     }
 
     queries.push({
-      queryText: scope ? `${base} AND ${scope}` : base,
+      queryText: base,
       derivedFrom: "peer-org",
       profileReference: peer.name,
       geographicFilters: [],

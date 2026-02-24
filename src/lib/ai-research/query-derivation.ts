@@ -29,43 +29,76 @@ function deriveTemplateQueries(
 
   const role = profile.role || "professional";
   const company = profile.company || "their company";
+  const topicContext = contentUniverse
+    ? contentUniverse.coreTopics.slice(0, 5).join(", ")
+    : profile.topics.slice(0, 5).join(", ");
+  const exclusionNote = contentUniverse?.exclusions.length
+    ? ` Exclude anything about ${contentUniverse.exclusions.join(", ")}.`
+    : "";
 
+  // Core universe-driven queries — deep and specific
   if (contentUniverse) {
-    const exclusionsSuffix = contentUniverse.exclusions.length > 0
-      ? ` Do NOT include ${contentUniverse.exclusions.join(", ")}.`
-      : "";
-
-    for (const entry of contentUniverse.coreTopics) {
+    for (const topic of contentUniverse.coreTopics) {
       perplexitySet.add(
-        `What recent developments in ${entry} should a ${role} at ${company} know about?${exclusionsSuffix}`
+        `A ${role} at ${company} works on ${topicContext}. What happened in ${topic} in the last 48 hours that they probably don't know yet but should? Be specific — names, numbers, deals, launches, regulatory changes.${exclusionNote}`
       );
     }
+
+    // Cross-topic intersection queries
+    const topics = contentUniverse.coreTopics;
+    if (topics.length >= 2) {
+      for (let i = 0; i < Math.min(topics.length - 1, 3); i++) {
+        perplexitySet.add(
+          `What is the latest news at the intersection of ${topics[i]} and ${topics[i + 1]}? Focus on developments from the last 48 hours that a ${role} would find actionable.${exclusionNote}`
+        );
+      }
+    }
+
+    // "Blind spot" query
+    perplexitySet.add(
+      `What are the most important things happening right now that someone focused on ${topicContext} at ${company} might be missing? Think adjacent markets, upstream/downstream changes, regulatory shifts, talent moves.${exclusionNote}`
+    );
   } else {
     for (const topic of profile.topics) {
       perplexitySet.add(
-        `What should a ${role} at ${company} know about ${topic} today?`
+        `What should a ${role} at ${company} know about ${topic} today? Focus on specific developments from the last 48 hours.`
       );
     }
   }
 
   for (const initiative of profile.initiatives) {
-    perplexitySet.add(`Latest developments in ${initiative}`);
+    perplexitySet.add(
+      `What concrete developments happened in the last 48 hours related to ${initiative}? Include specific companies, product launches, funding rounds, or policy changes.${exclusionNote}`
+    );
   }
 
   for (const concern of profile.concerns) {
-    perplexitySet.add(`Recent news and developments about ${concern}`);
+    perplexitySet.add(
+      `What should a ${role} know about ${concern} right now? Focus on new risks, competitive moves, or regulatory developments in the last 48 hours.${exclusionNote}`
+    );
   }
 
   for (const gap of profile.knowledgeGaps) {
-    perplexitySet.add(`Key things to understand about ${gap} right now`);
+    perplexitySet.add(
+      `What are the most important things happening in ${gap} that a ${role} working on ${topicContext} needs to understand right now?${exclusionNote}`
+    );
   }
 
+  // Tavily — targeted news discovery with context
   for (const co of profile.impressListCompanies) {
-    tavilySet.add(`${co} news announcements`);
+    tavilySet.add(`"${co}" ${topicContext} news announcements 2026`);
+    tavilySet.add(`"${co}" partnerships launches strategy`);
   }
 
   for (const org of profile.peerOrgNames) {
-    tavilySet.add(`${org} recent news`);
+    tavilySet.add(`"${org}" ${topicContext} news 2026`);
+  }
+
+  // Industry-wide queries
+  if (topicContext) {
+    tavilySet.add(`${topicContext} funding rounds acquisitions 2026`);
+    tavilySet.add(`${topicContext} new regulations policy changes 2026`);
+    tavilySet.add(`${topicContext} emerging startups launches 2026`);
   }
 
   return {
@@ -78,16 +111,15 @@ async function deriveLlmQueries(
   profile: ProfileContext,
   contentUniverse: ContentUniverse | null = null
 ): Promise<ResearchQueries> {
-  let systemPrompt = `You generate research queries for an intelligence briefing system. Given a professional's context, generate two types of queries:
-1. "perplexity" — synthesized research questions (for Perplexity Sonar). These should be natural-language questions that surface strategic insights, emerging trends, and contextual intelligence.
-2. "tavily" — targeted news discovery queries (for Tavily search). These should be keyword-style queries that find specific articles and announcements.
+  let systemPrompt = `You generate research queries for an intelligence briefing system. This person needs to NOT sound stupid — they need to know things others in their space know, catch emerging trends early, and never be blindsided.
 
-Focus on:
-- Deeper, more specific angles within the professional's niche — specific sub-topics, specific regulatory developments, specific companies or players
-- Emerging terminology and new concepts relevant to their role
-- Developments specifically within their content universe that they need to track
+Generate two types of queries:
+1. "perplexity" — deep research questions (for Perplexity Sonar). Natural-language questions that uncover specific, actionable intelligence. Ask about specific companies, deals, people, regulations, launches — not vague trend overviews.
+2. "tavily" — targeted news search queries (for Tavily). Keyword-style queries to find specific recent articles. Include quoted company names, topic keywords, and year.
 
-Return ONLY a JSON object with two arrays: {"perplexity": [...], "tavily": [...]}. No markdown. 5-8 queries per type.`;
+Think like their chief of staff preparing them for the day. What would embarrass them to not know? What's the thing everyone at their level is talking about? What just shifted that changes their calculus?
+
+Generate 8-12 queries per type. Be SPECIFIC — "What did Anthropic announce about enterprise pricing this week" not "AI trends". Return ONLY a JSON object: {"perplexity": [...], "tavily": [...]}. No markdown.`;
 
   if (contentUniverse) {
     systemPrompt += `\n\nThe user's content universe:
