@@ -1,10 +1,11 @@
 import { db } from "../db";
-import { newsQueries, newsPollState, signals, signalProvenance } from "../schema";
+import { newsQueries, newsPollState, signals, signalProvenance, userProfiles } from "../schema";
 import { eq, lte } from "drizzle-orm";
 import { NewsApiAiClient, type NewsApiArticle } from "./newsapi-client";
 import { loadNewsIngestionConfig } from "./config";
 import type { NewsQueryDerivedFrom } from "../../models/news-ingestion";
 import type { TriggerReason } from "../../models/signal";
+import type { ContentUniverse } from "../../models/content-universe";
 
 interface IngestedSignal {
   layer: "news";
@@ -28,7 +29,22 @@ interface IngestionResult {
   provenance: ProvenanceRecord[];
   queriesPolled: number;
   articlesFound: number;
+  filteredOut: number;
   errorsEncounted: number;
+}
+
+export function matchesContentUniverse(title: string, summary: string, universe: ContentUniverse | null): boolean {
+  if (!universe) return true;
+
+  const text = `${title} ${summary}`.toLowerCase();
+
+  const hasCoreTopic = universe.coreTopics.some((topic) => text.includes(topic.toLowerCase()));
+  if (hasCoreTopic) return true;
+
+  const hasExclusion = universe.exclusions.some((exc) => text.includes(exc.toLowerCase()));
+  if (hasExclusion) return false;
+
+  return false;
 }
 
 function derivedFromToTriggerReason(derivedFrom: NewsQueryDerivedFrom): TriggerReason {
@@ -156,10 +172,24 @@ export async function pollNewsQueries(cycleId: string): Promise<IngestionResult>
 
   const capped = queriesToPoll.slice(0, config.maxQueriesPerCycle);
 
+  const userUniverseCache = new Map<string, ContentUniverse | null>();
+  async function getUserUniverse(userId: string): Promise<ContentUniverse | null> {
+    if (userUniverseCache.has(userId)) return userUniverseCache.get(userId)!;
+    const [profile] = await db
+      .select({ contentUniverse: userProfiles.contentUniverse })
+      .from(userProfiles)
+      .where(eq(userProfiles.userId, userId))
+      .limit(1);
+    const universe = (profile?.contentUniverse as ContentUniverse) ?? null;
+    userUniverseCache.set(userId, universe);
+    return universe;
+  }
+
   const allSignals: IngestedSignal[] = [];
   const allProvenance: ProvenanceRecord[] = [];
   const seenUrls = new Set<string>();
   let totalArticles = 0;
+  let totalFilteredOut = 0;
   let totalErrors = 0;
 
   for (const query of capped) {
@@ -167,13 +197,20 @@ export async function pollNewsQueries(cycleId: string): Promise<IngestionResult>
 
     try {
       const result = await client.searchArticles(query.queryText);
+      const universe = await getUserUniverse(query.userId);
 
       let newCount = 0;
       for (const article of result.articles) {
         if (!article.url || seenUrls.has(article.url)) continue;
-        seenUrls.add(article.url);
 
-        allSignals.push(articleToSignal(article));
+        const sig = articleToSignal(article);
+        if (!matchesContentUniverse(sig.title, sig.summary, universe)) {
+          totalFilteredOut++;
+          continue;
+        }
+
+        seenUrls.add(article.url);
+        allSignals.push(sig);
         allProvenance.push({
           signalSourceUrl: article.url,
           userId: query.userId,
@@ -228,11 +265,16 @@ export async function pollNewsQueries(cycleId: string): Promise<IngestionResult>
     }
   }
 
+  if (totalFilteredOut > 0) {
+    console.log(`[news-ingestion] Content universe filter: ${totalFilteredOut} articles dropped, ${allSignals.length} passed`);
+  }
+
   return {
     signals: allSignals,
     provenance: allProvenance,
     queriesPolled: capped.length,
     articlesFound: totalArticles,
+    filteredOut: totalFilteredOut,
     errorsEncounted: totalErrors,
   };
 }

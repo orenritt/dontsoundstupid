@@ -460,6 +460,20 @@ CREATE INDEX idx_exposure_records_signal ON exposure_records (signal_id);
 CREATE INDEX idx_exposure_records_user_delivered ON exposure_records (user_id, delivered_at DESC);
 CREATE INDEX idx_exposure_records_briefing ON exposure_records (briefing_id);
 
+CREATE TABLE pruned_entities (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id         UUID NOT NULL,
+  name            TEXT NOT NULL,
+  entity_type     knowledge_entity_type NOT NULL,
+  reason          TEXT NOT NULL DEFAULT '',
+  pruned_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT unique_pruned_entity UNIQUE (user_id, name, entity_type)
+);
+
+CREATE INDEX idx_pruned_entities_user ON pruned_entities (user_id);
+CREATE INDEX idx_pruned_entities_lookup ON pruned_entities (user_id, name, entity_type);
+
 -- Pipeline orchestrator
 
 CREATE TYPE pipeline_run_status AS ENUM ('scheduled', 'running', 'completed', 'partial-failure', 'failed');

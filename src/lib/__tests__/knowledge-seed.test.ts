@@ -41,6 +41,11 @@ vi.mock("../safe-parse", () => ({
   },
 }));
 
+vi.mock("../knowledge-prune", () => ({
+  isEntitySuppressed: vi.fn().mockResolvedValue(false),
+  pruneKnowledgeGraph: vi.fn().mockResolvedValue({ pruned: 0, kept: 0, exempt: 0 }),
+}));
+
 import { seedKnowledgeGraph } from "../knowledge-seed";
 import { db } from "../db";
 

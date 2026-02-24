@@ -186,7 +186,15 @@ export async function GET(request: NextRequest) {
         ORDER BY kedge.id DESC
         LIMIT ${limit}
       `);
-      return NextResponse.json({ entities: rows, edges });
+      const prunedEntities = await db.execute(sql`
+        SELECT pe.id, pe.user_id, pe.name, pe.entity_type, pe.reason, pe.pruned_at,
+               u.email
+        FROM pruned_entities pe
+        LEFT JOIN users u ON u.id = pe.user_id
+        ORDER BY pe.pruned_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+      return NextResponse.json({ entities: rows, edges, prunedEntities });
     }
 
     case "briefings": {

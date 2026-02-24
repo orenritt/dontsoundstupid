@@ -16,6 +16,7 @@ import {
   markPerplexityCalled,
   markTavilyCalled,
 } from "./enrichment-queue";
+import { isEntitySuppressed } from "./knowledge-prune";
 
 export interface DeepDiveOptions {
   depth?: EnrichmentDepth;
@@ -709,6 +710,9 @@ async function ensurePersonEntity(
   description: string,
   source: "impress-deep-dive" | "calendar-deep-dive"
 ): Promise<string | undefined> {
+  const suppressed = await isEntitySuppressed(userId, name, "person");
+  if (suppressed) return undefined;
+
   const [existing] = await db
     .select()
     .from(knowledgeEntities)
@@ -777,6 +781,9 @@ async function ensureConceptEntity(
   confidence: number,
   embedding: number[] | null
 ): Promise<string | undefined> {
+  const suppressed = await isEntitySuppressed(userId, name, "concept");
+  if (suppressed) return undefined;
+
   const [existing] = await db
     .select()
     .from(knowledgeEntities)

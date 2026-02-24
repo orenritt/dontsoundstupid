@@ -10,6 +10,7 @@ import { chat, embed } from "./llm";
 import { toStringArray } from "./safe-parse";
 import { contentHash } from "./news-ingestion/query-derivation";
 import type { ContentUniverse } from "../models/content-universe";
+import { isEntitySuppressed } from "./knowledge-prune";
 
 interface GapItem {
   name: string;
@@ -189,6 +190,9 @@ ${knowledgeSnapshot}`,
         const entityType = validTypes.has(gap.entityType) ? gap.entityType : "concept";
 
         try {
+          const suppressed = await isEntitySuppressed(userId, gap.name, entityType);
+          if (suppressed) continue;
+
           await db
             .insert(knowledgeEntities)
             .values({

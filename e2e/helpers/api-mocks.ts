@@ -446,6 +446,23 @@ export async function mockUserProfile(page: Page) {
 }
 
 /**
+ * Mock the admin knowledge graph pruning endpoint.
+ */
+export async function mockAdminPruneKnowledgeGraph(page: Page) {
+  await page.route("**/api/admin/prune-knowledge-graph", async (route: Route) => {
+    if (route.request().method() !== "POST") {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ pruned: 5, kept: 42, exempt: 18 }),
+    });
+  });
+}
+
+/**
  * Apply all mocks needed for the full onboarding flow.
  */
 export async function mockFullOnboarding(page: Page) {

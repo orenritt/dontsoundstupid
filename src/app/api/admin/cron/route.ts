@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import { users } from "@/lib/schema";
 import { eq } from "drizzle-orm";
 import { scanKnowledgeGaps } from "@/lib/knowledge-gap-scan";
+import { pruneKnowledgeGraph } from "@/lib/knowledge-prune";
 import { smartDiscoverFeeds } from "@/lib/syndication";
 import {
   deriveNewsQueries,
@@ -266,6 +267,46 @@ export async function POST(request: NextRequest) {
           success: results.filter((r) => r.status === "success").length,
           noContent: results.filter((r) => r.status === "no_content").length,
           errors: results.filter((r) => r.status === "error").length,
+        },
+        results,
+      });
+    }
+
+    case "prune-knowledge": {
+      const allUsers = await getCompletedUsers();
+      const results: {
+        userId: string;
+        email: string | null;
+        pruned: number;
+        kept: number;
+        exempt: number;
+        error?: string;
+      }[] = [];
+
+      for (const user of allUsers) {
+        try {
+          const result = await pruneKnowledgeGraph(user.id);
+          results.push({ userId: user.id, email: user.email, ...result });
+        } catch (err) {
+          results.push({
+            userId: user.id,
+            email: user.email,
+            pruned: 0,
+            kept: 0,
+            exempt: 0,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      return NextResponse.json({
+        job,
+        durationMs: Date.now() - startTime,
+        summary: {
+          usersProcessed: allUsers.length,
+          totalPruned: results.reduce((s, r) => s + r.pruned, 0),
+          totalKept: results.reduce((s, r) => s + r.kept, 0),
+          errors: results.filter((r) => r.error).length,
         },
         results,
       });

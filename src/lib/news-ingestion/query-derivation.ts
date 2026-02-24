@@ -23,21 +23,34 @@ function contentHash(queryText: string): string {
   return createHash("sha256").update(queryText.toLowerCase().trim()).digest("hex");
 }
 
-async function getGeographicFilters(userId: string): Promise<string[]> {
+function buildTopicScope(universe: ContentUniverse): string {
+  const top = universe.coreTopics.slice(0, 3);
+  if (top.length === 0) return "";
+  return `(${top.map((t) => `"${t}"`).join(" OR ")})`;
+}
+
+async function loadProfileWithUniverse(userId: string): Promise<{
+  profile: Record<string, unknown> | null;
+  contentUniverse: ContentUniverse | null;
+  geoFilters: string[];
+}> {
   const [profile] = await db
     .select()
     .from(userProfiles)
     .where(eq(userProfiles.userId, userId))
     .limit(1);
 
-  if (!profile) return [];
+  if (!profile) return { profile: null, contentUniverse: null, geoFilters: [] };
 
-  const geoRelevance = (profile as Record<string, unknown>).geographicRelevance;
-  if (Array.isArray(geoRelevance)) return geoRelevance as string[];
-  return [];
+  const raw = profile as Record<string, unknown>;
+  const contentUniverse = (raw.contentUniverse as ContentUniverse) ?? null;
+  const geoRelevance = raw.geographicRelevance;
+  const geoFilters = Array.isArray(geoRelevance) ? (geoRelevance as string[]) : [];
+
+  return { profile: raw, contentUniverse, geoFilters };
 }
 
-async function deriveFromImpressList(userId: string): Promise<DerivedQuery[]> {
+async function deriveFromImpressList(userId: string, universe: ContentUniverse | null): Promise<DerivedQuery[]> {
   const contacts = await db
     .select()
     .from(impressContacts)
@@ -45,12 +58,14 @@ async function deriveFromImpressList(userId: string): Promise<DerivedQuery[]> {
 
   const companies = new Set<string>();
   const queries: DerivedQuery[] = [];
+  const scope = universe ? buildTopicScope(universe) : "";
 
   for (const contact of contacts) {
     if (contact.company && !companies.has(contact.company.toLowerCase())) {
       companies.add(contact.company.toLowerCase());
+      const base = `"${contact.company}"`;
       queries.push({
-        queryText: `"${contact.company}"`,
+        queryText: scope ? `${base} AND ${scope}` : base,
         derivedFrom: "impress-list",
         profileReference: contact.company,
         geographicFilters: [],
@@ -61,7 +76,7 @@ async function deriveFromImpressList(userId: string): Promise<DerivedQuery[]> {
   return queries;
 }
 
-async function deriveFromPeerOrgs(userId: string): Promise<DerivedQuery[]> {
+async function deriveFromPeerOrgs(userId: string, universe: ContentUniverse | null): Promise<DerivedQuery[]> {
   const peers = await db
     .select()
     .from(peerOrganizations)
@@ -69,77 +84,62 @@ async function deriveFromPeerOrgs(userId: string): Promise<DerivedQuery[]> {
 
   const queries: DerivedQuery[] = [];
   const currentYear = new Date().getFullYear();
+  const scope = universe ? buildTopicScope(universe) : "";
 
   for (const peer of peers) {
     const entityType = peer.entityType || "company";
+    let base: string;
 
     switch (entityType) {
       case "conference":
-        queries.push({
-          queryText: `"${peer.name}" ${currentYear}`,
-          derivedFrom: "peer-org",
-          profileReference: peer.name,
-          geographicFilters: [],
-        });
+        base = `"${peer.name}" ${currentYear}`;
         break;
       case "publication":
       case "community":
-        queries.push({
-          queryText: peer.name,
-          derivedFrom: "peer-org",
-          profileReference: peer.name,
-          geographicFilters: [],
-        });
+        base = peer.name;
         break;
       default:
-        queries.push({
-          queryText: `"${peer.name}"`,
-          derivedFrom: "peer-org",
-          profileReference: peer.name,
-          geographicFilters: [],
-        });
+        base = `"${peer.name}"`;
         break;
     }
+
+    queries.push({
+      queryText: scope ? `${base} AND ${scope}` : base,
+      derivedFrom: "peer-org",
+      profileReference: peer.name,
+      geographicFilters: [],
+    });
   }
 
   return queries;
 }
 
-async function deriveFromIntelligenceGoals(userId: string): Promise<DerivedQuery[]> {
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, userId))
-    .limit(1);
-
+function deriveFromIntelligenceGoals(profile: Record<string, unknown> | null, universe: ContentUniverse | null): DerivedQuery[] {
   if (!profile) return [];
 
-  const goals = (profile as Record<string, unknown>).intelligenceGoals;
+  const goals = profile.intelligenceGoals;
   if (!Array.isArray(goals)) return [];
+
+  const scope = universe ? buildTopicScope(universe) : "";
 
   return goals
     .filter((g: { active?: boolean; detail?: string | null }) => g.active && g.detail)
-    .map((g: { category?: string; detail?: string }) => ({
-      queryText: g.detail ?? "",
-      derivedFrom: "intelligence-goal" as const,
-      profileReference: `${g.category ?? "custom"}: ${g.detail ?? ""}`,
-      geographicFilters: [],
-    }));
+    .map((g: { category?: string; detail?: string }) => {
+      const detail = g.detail ?? "";
+      return {
+        queryText: scope ? `${detail} AND ${scope}` : detail,
+        derivedFrom: "intelligence-goal" as const,
+        profileReference: `${g.category ?? "custom"}: ${detail}`,
+        geographicFilters: [],
+      };
+    });
 }
 
-async function deriveFromTopics(userId: string): Promise<DerivedQuery[]> {
-  const [profile] = await db
-    .select()
-    .from(userProfiles)
-    .where(eq(userProfiles.userId, userId))
-    .limit(1);
-
+function deriveFromTopics(profile: Record<string, unknown> | null, universe: ContentUniverse | null): DerivedQuery[] {
   if (!profile) return [];
 
-  const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
-
-  if (contentUniverse) {
-    return contentUniverse.coreTopics.map((entry) => ({
+  if (universe) {
+    return universe.coreTopics.map((entry) => ({
       queryText: `"${entry}"`,
       derivedFrom: "industry" as const,
       profileReference: entry,
@@ -157,13 +157,13 @@ async function deriveFromTopics(userId: string): Promise<DerivedQuery[]> {
 }
 
 export async function deriveNewsQueries(userId: string): Promise<void> {
-  const geoFilters = await getGeographicFilters(userId);
+  const { profile, contentUniverse, geoFilters } = await loadProfileWithUniverse(userId);
 
   const derived = [
-    ...(await deriveFromImpressList(userId)),
-    ...(await deriveFromPeerOrgs(userId)),
-    ...(await deriveFromIntelligenceGoals(userId)),
-    ...(await deriveFromTopics(userId)),
+    ...(await deriveFromImpressList(userId, contentUniverse)),
+    ...(await deriveFromPeerOrgs(userId, contentUniverse)),
+    ...deriveFromIntelligenceGoals(profile, contentUniverse),
+    ...deriveFromTopics(profile, contentUniverse),
   ];
 
   const appliedGeo = derived.map((q) => ({

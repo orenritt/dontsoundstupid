@@ -147,6 +147,52 @@ Do NOT generate queries about these excluded topics: ${contentUniverse.exclusion
   }
 }
 
+export interface MeetingContext {
+  title: string;
+  startTime: Date;
+  attendees: {
+    name: string | null;
+    title: string | null;
+    company: string | null;
+    isOnImpressList: boolean;
+  }[];
+}
+
+export function deriveMeetingPrepQueries(
+  profile: ProfileContext,
+  meetings: MeetingContext[],
+  contentUniverse: ContentUniverse | null = null
+): string[] {
+  const queries: string[] = [];
+  const role = profile.role || "professional";
+  const company = profile.company || "their company";
+  const topicSummary = contentUniverse
+    ? contentUniverse.coreTopics.slice(0, 3).join(", ")
+    : profile.topics.slice(0, 3).join(", ");
+
+  for (const meeting of meetings) {
+    const highPriority = meeting.attendees.filter((a) => {
+      if (a.isOnImpressList) return true;
+      const t = (a.title || "").toLowerCase();
+      return /\b(c[eost]o|cfo|cio|cmo|cro|cto|chief|president|founder|partner|managing director|vp |vice president|svp|evp|head of|director|general manager|gm)\b/.test(t);
+    });
+
+    if (highPriority.length === 0) continue;
+
+    for (const attendee of highPriority.slice(0, 2)) {
+      const name = attendee.name || "someone";
+      const attendeeTitle = attendee.title || "executive";
+      const attendeeCompany = attendee.company || "their company";
+
+      queries.push(
+        `What should a ${role} at ${company} working on ${topicSummary} know before meeting ${name}, ${attendeeTitle} at ${attendeeCompany} today? Focus on recent developments at ${attendeeCompany}, industry news they would care about, and potential conversation topics. Only include concrete, specific facts from the last 48 hours.`
+      );
+    }
+  }
+
+  return queries;
+}
+
 export function deriveResearchQueries(
   profile: ProfileContext,
   contentUniverse: ContentUniverse | null = null

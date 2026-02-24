@@ -40,6 +40,13 @@ const JOBS: JobDef[] = [
     schedule: "Biweekly (1st & 15th)",
     color: "yellow",
   },
+  {
+    id: "prune-knowledge",
+    label: "Knowledge Graph Pruning",
+    description: "Prune overly-general and irrelevant entities from knowledge graphs",
+    schedule: "Weekly",
+    color: "yellow",
+  },
 ];
 
 interface JobResult {
@@ -211,6 +218,12 @@ export default function CronPage() {
                         <span className="text-white/40">
                           {r.gapsFound} gaps, {r.queriesAdded as number} queries,{" "}
                           {r.entitiesSeeded as number} entities
+                        </span>
+                      )}
+                      {typeof r.pruned === "number" && (
+                        <span className="text-white/40">
+                          {r.pruned as number} pruned, {r.kept as number} kept,{" "}
+                          {r.exempt as number} exempt
                         </span>
                       )}
                       {typeof r.feedsDiscovered === "number" && (

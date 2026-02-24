@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { knowledgeEntities } from "./schema";
 import { chat, embed } from "./llm";
+import { isEntitySuppressed } from "./knowledge-prune";
 
 interface BriefingItem {
   id: string;
@@ -83,6 +84,9 @@ Rules:
   for (let i = 0; i < deduped.length; i++) {
     const entity = deduped[i]!;
     try {
+      const suppressed = await isEntitySuppressed(userId, entity.name, entity.entityType);
+      if (suppressed) continue;
+
       await db
         .insert(knowledgeEntities)
         .values({

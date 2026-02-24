@@ -9,6 +9,7 @@ import {
 import { eq } from "drizzle-orm";
 import { chat, embed } from "./llm";
 import { toStringArray } from "./safe-parse";
+import { isEntitySuppressed, pruneKnowledgeGraph } from "./knowledge-prune";
 
 export async function seedKnowledgeGraph(userId: string) {
   const [user] = await db
@@ -108,6 +109,9 @@ export async function seedKnowledgeGraph(userId: string) {
     for (let j = 0; j < batch.length; j++) {
       const entity = batch[j]!;
       try {
+        const suppressed = await isEntitySuppressed(userId, entity.name, entity.type);
+        if (suppressed) continue;
+
         await db
           .insert(knowledgeEntities)
           .values({
@@ -124,4 +128,6 @@ export async function seedKnowledgeGraph(userId: string) {
       }
     }
   }
+
+  await pruneKnowledgeGraph(userId);
 }

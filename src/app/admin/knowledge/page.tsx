@@ -35,6 +35,16 @@ interface EdgeRow {
   target_type: string;
 }
 
+interface PrunedRow {
+  id: string;
+  user_id: string;
+  name: string;
+  entity_type: string;
+  reason: string;
+  pruned_at: string;
+  email: string;
+}
+
 const TYPE_COLORS: Record<string, "green" | "blue" | "purple" | "yellow" | "red" | "gray"> = {
   company: "blue",
   person: "green",
@@ -47,13 +57,37 @@ const TYPE_COLORS: Record<string, "green" | "blue" | "purple" | "yellow" | "red"
 
 export default function KnowledgePage() {
   const [offset, setOffset] = useState(0);
-  const [tab, setTab] = useState<"entities" | "edges">("entities");
+  const [tab, setTab] = useState<"entities" | "edges" | "pruned">("entities");
+  const [pruneLoading, setPruneLoading] = useState<string | null>(null);
+  const [pruneResult, setPruneResult] = useState<{ pruned: number; kept: number; exempt: number } | null>(null);
   const limit = 50;
 
   const { data, loading, error, refetch } = useAdminData<{
     entities: EntityRow[];
     edges: EdgeRow[];
+    prunedEntities?: PrunedRow[];
   }>("knowledge-graph", { limit: String(limit), offset: String(offset) });
+
+  async function handlePrune(userId: string) {
+    setPruneLoading(userId);
+    setPruneResult(null);
+    try {
+      const res = await fetch("/api/admin/prune-knowledge-graph", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (res.ok) {
+        const result = await res.json();
+        setPruneResult(result);
+        refetch();
+      }
+    } catch {
+      // non-critical
+    } finally {
+      setPruneLoading(null);
+    }
+  }
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={refetch} />;
@@ -77,28 +111,69 @@ export default function KnowledgePage() {
           >
             Edges
           </button>
+          <button
+            onClick={() => setTab("pruned")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${tab === "pruned" ? "bg-white/15 text-white" : "bg-white/5 text-white/40 hover:bg-white/10"}`}
+          >
+            Suppressed
+          </button>
         </div>
       </PageHeader>
 
+      {pruneResult && (
+        <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-4 mb-4">
+          <p className="text-sm text-green-400">
+            Pruning complete: {pruneResult.pruned} pruned, {pruneResult.kept} kept, {pruneResult.exempt} exempt
+          </p>
+        </div>
+      )}
+
       {tab === "entities" ? (
-        <DataTable
-          columns={[
-            { key: "entity_type", label: "Type", render: (val) => <Badge color={TYPE_COLORS[String(val)] || "gray"}>{String(val)}</Badge> },
-            { key: "name", label: "Name", render: (val) => <span className="text-white font-medium">{String(val)}</span> },
-            { key: "description", label: "Description", render: (val) => <span className="max-w-[200px] block truncate">{String(val || "-")}</span> },
-            { key: "source", label: "Source", render: (val) => <Badge>{String(val)}</Badge> },
-            { key: "confidence", label: "Confidence", render: (val) => {
-              const conf = Number(val);
-              const color = conf >= 0.8 ? "green" : conf >= 0.5 ? "yellow" : "red";
-              return <Badge color={color}>{(conf * 100).toFixed(0)}%</Badge>;
-            }},
-            { key: "email", label: "User", render: (val) => <span className="text-white/40">{String(val)}</span> },
-            { key: "known_since", label: "Known Since", render: (val) => formatDate(val) },
-            { key: "last_reinforced", label: "Last Reinforced", render: (val) => formatDate(val) },
-          ]}
-          rows={(data?.entities ?? []) as unknown as Record<string, unknown>[]}
-        />
-      ) : (
+        <>
+          {(() => {
+            const userIds = [...new Set((data?.entities ?? []).map((e) => e.user_id))];
+            if (userIds.length === 0) return null;
+            return (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {userIds.map((uid) => {
+                  const userEmail = (data?.entities ?? []).find((e) => e.user_id === uid)?.email ?? uid.slice(0, 8);
+                  return (
+                    <button
+                      key={uid}
+                      onClick={() => handlePrune(uid)}
+                      disabled={pruneLoading !== null}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        pruneLoading === uid
+                          ? "bg-yellow-500/10 text-yellow-400 cursor-wait"
+                          : "bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                      }`}
+                    >
+                      {pruneLoading === uid ? "Pruning..." : `Prune ${userEmail}`}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          <DataTable
+            columns={[
+              { key: "entity_type", label: "Type", render: (val) => <Badge color={TYPE_COLORS[String(val)] || "gray"}>{String(val)}</Badge> },
+              { key: "name", label: "Name", render: (val) => <span className="text-white font-medium">{String(val)}</span> },
+              { key: "description", label: "Description", render: (val) => <span className="max-w-[200px] block truncate">{String(val || "-")}</span> },
+              { key: "source", label: "Source", render: (val) => <Badge>{String(val)}</Badge> },
+              { key: "confidence", label: "Confidence", render: (val) => {
+                const conf = Number(val);
+                const color = conf >= 0.8 ? "green" : conf >= 0.5 ? "yellow" : "red";
+                return <Badge color={color}>{(conf * 100).toFixed(0)}%</Badge>;
+              }},
+              { key: "email", label: "User", render: (val) => <span className="text-white/40">{String(val)}</span> },
+              { key: "known_since", label: "Known Since", render: (val) => formatDate(val) },
+              { key: "last_reinforced", label: "Last Reinforced", render: (val) => formatDate(val) },
+            ]}
+            rows={(data?.entities ?? []) as unknown as Record<string, unknown>[]}
+          />
+        </>
+      ) : tab === "edges" ? (
         <DataTable
           columns={[
             { key: "source_name", label: "Source Entity", render: (val, row) => (
@@ -114,6 +189,17 @@ export default function KnowledgePage() {
             )},
           ]}
           rows={(data?.edges ?? []) as unknown as Record<string, unknown>[]}
+        />
+      ) : (
+        <DataTable
+          columns={[
+            { key: "entity_type", label: "Type", render: (val) => <Badge color={TYPE_COLORS[String(val)] || "gray"}>{String(val)}</Badge> },
+            { key: "name", label: "Name", render: (val) => <span className="text-white font-medium">{String(val)}</span> },
+            { key: "reason", label: "Reason", render: (val) => <span className="max-w-[300px] block truncate">{String(val || "-")}</span> },
+            { key: "email", label: "User", render: (val) => <span className="text-white/40">{String(val)}</span> },
+            { key: "pruned_at", label: "Pruned At", render: (val) => formatDate(val) },
+          ]}
+          rows={(data?.prunedEntities ?? []) as unknown as Record<string, unknown>[]}
         />
       )}
 

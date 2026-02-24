@@ -4,14 +4,16 @@ import {
   userProfiles,
   impressContacts,
   peerOrganizations,
+  meetings,
+  meetingAttendees,
   signals as signalsTable,
   signalProvenance,
 } from "../schema";
-import { eq } from "drizzle-orm";
+import { eq, gte, lte, and } from "drizzle-orm";
 import { toStringArray } from "../safe-parse";
 import { searchPerplexity } from "./perplexity-client";
 import { searchTavily } from "./tavily-client";
-import { deriveEnrichedResearchQueries } from "./query-derivation";
+import { deriveEnrichedResearchQueries, deriveMeetingPrepQueries, type MeetingContext } from "./query-derivation";
 import { createLogger } from "../logger";
 import type { ContentUniverse } from "../../models/content-universe";
 
@@ -71,8 +73,7 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
 
   const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
 
-  ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length, hasContentUniverse: !!contentUniverse }, "Deriving research queries");
-  const queries = await deriveEnrichedResearchQueries({
+  const profileContext = {
     role: user.title || "professional",
     company: user.company || "their company",
     topics: toStringArray(profile.parsedTopics),
@@ -81,17 +82,63 @@ export async function runAiResearch(userId: string): Promise<RawSignal[]> {
     knowledgeGaps: toStringArray(profile.parsedKnowledgeGaps),
     impressListCompanies: impressCompanies,
     peerOrgNames,
-  }, contentUniverse);
+  };
+
+  const now = new Date();
+  const tomorrowEnd = new Date(now);
+  tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
+  tomorrowEnd.setHours(23, 59, 59, 999);
+
+  const todayMeetings = await db
+    .select()
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.userId, userId),
+        gte(meetings.startTime, now),
+        lte(meetings.startTime, tomorrowEnd)
+      )
+    );
+
+  const impressNamesLower = new Set(
+    contacts.map((c) => (c.name || "").toLowerCase()).filter(Boolean)
+  );
+
+  const meetingContexts: MeetingContext[] = [];
+  for (const meeting of todayMeetings) {
+    const attendees = await db
+      .select()
+      .from(meetingAttendees)
+      .where(eq(meetingAttendees.meetingId, meeting.id));
+
+    meetingContexts.push({
+      title: meeting.title,
+      startTime: meeting.startTime,
+      attendees: attendees.map((a) => ({
+        name: a.name,
+        title: a.title,
+        company: a.company,
+        isOnImpressList: impressNamesLower.has((a.name || "").toLowerCase()),
+      })),
+    });
+  }
+
+  const meetingPrepQueries = deriveMeetingPrepQueries(profileContext, meetingContexts, contentUniverse);
+  ulog.info({ meetingsFound: todayMeetings.length, meetingPrepQueries: meetingPrepQueries.length }, "Meeting prep queries derived");
+
+  ulog.info({ impressCompanies: impressCompanies.length, peerOrgs: peerOrgNames.length, hasContentUniverse: !!contentUniverse }, "Deriving research queries");
+  const queries = await deriveEnrichedResearchQueries(profileContext, contentUniverse);
 
   const systemContext = `You are a research assistant for a ${user.title || "professional"} at ${user.company || "a company"}. Provide concise, factual intelligence. Focus on the last 24-48 hours of developments.`;
 
-  const cappedPerplexity = queries.perplexityQueries.slice(
+  const allPerplexity = [...meetingPrepQueries, ...queries.perplexityQueries];
+  const cappedPerplexity = allPerplexity.slice(
     0,
     MAX_PERPLEXITY_QUERIES
   );
   const cappedTavily = queries.tavilyQueries.slice(0, MAX_TAVILY_QUERIES);
 
-  ulog.info({ perplexityQueries: cappedPerplexity.length, tavilyQueries: cappedTavily.length, totalDerived: { perplexity: queries.perplexityQueries.length, tavily: queries.tavilyQueries.length } }, "Research queries derived");
+  ulog.info({ perplexityQueries: cappedPerplexity.length, tavilyQueries: cappedTavily.length, totalDerived: { perplexity: allPerplexity.length, meetingPrep: meetingPrepQueries.length, tavily: queries.tavilyQueries.length } }, "Research queries derived");
 
   const [perplexityResults, tavilyResults] = await Promise.all([
     Promise.all(

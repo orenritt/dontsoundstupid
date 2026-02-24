@@ -48,6 +48,21 @@ export interface KnowledgeEdge {
   relationship: KnowledgeRelationship;
 }
 
+export interface PrunedEntity {
+  id: string;
+  userId: string;
+  name: string;
+  entityType: KnowledgeEntityType;
+  reason: string;
+  prunedAt: string;
+}
+
+export interface PruneResult {
+  pruned: number;
+  kept: number;
+  exempt: number;
+}
+
 export interface ExposureRecord {
   id: string;
   userId: string;

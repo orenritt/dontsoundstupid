@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { feedbackSignals, knowledgeEntities } from "@/lib/schema";
 import { embed } from "@/lib/llm";
 import { maybeRegenerateFromFeedback } from "@/lib/content-universe";
+import { isEntitySuppressed } from "@/lib/knowledge-prune";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -23,18 +24,21 @@ export async function POST(request: Request) {
 
   if (topic) {
     try {
-      const embeddings = await embed([topic]);
-      await db
-        .insert(knowledgeEntities)
-        .values({
-          userId: session.user.id,
-          entityType: "concept",
-          name: topic,
-          source: "feedback-implicit",
-          confidence: 1.0,
-          embedding: embeddings[0] || null,
-        })
-        .onConflictDoNothing();
+      const suppressed = await isEntitySuppressed(session.user.id, topic, "concept");
+      if (!suppressed) {
+        const embeddings = await embed([topic]);
+        await db
+          .insert(knowledgeEntities)
+          .values({
+            userId: session.user.id,
+            entityType: "concept",
+            name: topic,
+            source: "feedback-implicit",
+            confidence: 1.0,
+            embedding: embeddings[0] || null,
+          })
+          .onConflictDoNothing();
+      }
     } catch {
       // Non-critical
     }

@@ -68,6 +68,7 @@ export async function runPipeline(
     diagnostics.news = {
       queriesPolled: newsResult.queriesPolled,
       articlesFound: newsResult.articlesFound,
+      filteredOut: newsResult.filteredOut,
       signalsCreated: newsResult.signals.length,
       errors: newsResult.errorsEncounted,
     };

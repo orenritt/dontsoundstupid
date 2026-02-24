@@ -231,6 +231,28 @@ export const knowledgeEdges = pgTable(
   ]
 );
 
+export const prunedEntities = pgTable(
+  "pruned_entities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    name: text("name").notNull(),
+    entityType: knowledgeEntityTypeEnum("entity_type").notNull(),
+    reason: text("reason").notNull().default(""),
+    prunedAt: timestamp("pruned_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("unique_pruned_entity").on(
+      table.userId,
+      table.name,
+      table.entityType
+    ),
+    index("idx_pruned_entities_user").on(table.userId),
+  ]
+);
+
 export const briefingReasonEnum = pgEnum("briefing_reason", [
   "people-are-talking",
   "meeting-prep",
