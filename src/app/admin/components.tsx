@@ -6,25 +6,27 @@ export function useAdminData<T>(source: string, params?: Record<string, string>)
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const paramsKey = JSON.stringify(params);
+  const paramsKey = JSON.stringify(params ?? {});
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const parsedParams = JSON.parse(paramsKey) as Record<string, string> | undefined;
+      const parsedParams = JSON.parse(paramsKey) as Record<string, string>;
       const searchParams = new URLSearchParams({ source, ...parsedParams });
       const res = await fetch(`/api/admin/data-explorer?${searchParams}`);
       const text = await res.text();
       if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`;
         try {
           const errJson = JSON.parse(text);
-          throw new Error(errJson.error || `HTTP ${res.status}`);
+          if (errJson.error) errMsg = errJson.error;
         } catch {
-          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+          if (text) errMsg += `: ${text.slice(0, 200)}`;
         }
+        throw new Error(errMsg);
       }
-      if (!text || text === "undefined") {
+      if (!text) {
         throw new Error("Empty response from server");
       }
       const json = JSON.parse(text);

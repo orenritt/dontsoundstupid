@@ -39,7 +39,7 @@ function formatDate(): string {
 }
 
 function buildHtml(payload: DeliveryPayload): string {
-  const { userName, items, briefingId, appUrl = "https://web-production-5d29a.up.railway.app" } = payload;
+  const { userName, items, appUrl = "https://web-production-5d29a.up.railway.app" } = payload;
   const firstName = userName.split(" ")[0] || "there";
   const date = formatDate();
 
@@ -47,26 +47,11 @@ function buildHtml(payload: DeliveryPayload): string {
     .map(
       (item, i) => `
     <tr>
-      <td style="padding: 20px 0; border-bottom: 1px solid #2a2a2a;">
-        <div style="font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;">
-          ${escapeHtml(item.reasonLabel)}
+      <td style="padding: 14px 0;${i < items.length - 1 ? " border-bottom: 1px solid #2a2a2a;" : ""}">
+        <div style="font-size: 18px; color: #e0e0e0; line-height: 1.5;">
+          <span style="color: #ffffff; font-weight: 700;">${i + 1}.</span>
+          ${escapeHtml(item.content)}${item.sourceUrl ? ` <a href="${escapeHtml(item.sourceUrl)}" style="color: #5b9aff; text-decoration: none; white-space: nowrap;">(${escapeHtml(item.sourceLabel || "link")}&nbsp;&rarr;)</a>` : ""}
         </div>
-        <div style="font-size: 15px; color: #e0e0e0; line-height: 1.5; margin-bottom: 8px;">
-          ${escapeHtml(item.content)}
-        </div>
-        ${
-          item.sourceUrl
-            ? `<a href="${escapeHtml(item.sourceUrl)}" style="font-size: 12px; color: #666; text-decoration: none;">${escapeHtml(item.sourceLabel || "Source")} &rarr;</a>`
-            : ""
-        }
-        ${
-          item.attribution
-            ? `<div style="margin-top: 8px; padding: 8px 10px; background-color: #1a1a1a; border-radius: 6px; border: 1px solid #2a2a2a;">
-                <div style="font-size: 11px; color: #555; margin-bottom: 2px;">Why we showed you this</div>
-                <div style="font-size: 12px; color: #888; line-height: 1.4;">${escapeHtml(item.attribution)}</div>
-              </div>`
-            : ""
-        }
       </td>
     </tr>`
     )
@@ -82,26 +67,23 @@ function buildHtml(payload: DeliveryPayload): string {
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a; padding: 40px 20px;">
     <tr>
       <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0" style="max-width: 560px; width: 100%;">
-          <!-- Header -->
+        <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
           <tr>
-            <td style="padding-bottom: 32px;">
-              <div style="font-size: 13px; color: #555; margin-bottom: 4px;">${date}</div>
-              <div style="font-size: 22px; font-weight: 600; color: #ffffff;">Your briefing, ${escapeHtml(firstName)}.</div>
+            <td style="padding-bottom: 24px;">
+              <div style="font-size: 12px; color: #555; margin-bottom: 4px;">${date}</div>
+              <div style="font-size: 22px; font-weight: 700; color: #ffffff;">${escapeHtml(firstName)}, here's what matters today.</div>
             </td>
           </tr>
 
-          <!-- Items -->
           ${itemsHtml}
 
-          <!-- Footer -->
           <tr>
-            <td style="padding-top: 32px; text-align: center;">
-              <a href="${appUrl}/briefing" style="display: inline-block; padding: 10px 24px; background-color: #ffffff; color: #000000; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 500;">
-                Open in app
+            <td style="padding-top: 28px; text-align: center;">
+              <a href="${appUrl}/briefing" style="display: inline-block; padding: 10px 24px; background-color: #ffffff; color: #000000; text-decoration: none; border-radius: 6px; font-size: 13px; font-weight: 600;">
+                Open full briefing
               </a>
-              <div style="margin-top: 24px; font-size: 11px; color: #444;">
-                Don't Sound Stupid &middot; <a href="${appUrl}/settings/delivery" style="color: #444; text-decoration: underline;">Delivery settings</a>
+              <div style="margin-top: 20px; font-size: 11px; color: #444;">
+                Don't Sound Stupid &middot; <a href="${appUrl}/settings/delivery" style="color: #444; text-decoration: underline;">Settings</a>
               </div>
             </td>
           </tr>
@@ -121,11 +103,11 @@ function buildText(payload: DeliveryPayload): string {
   const itemsText = items
     .map(
       (item, i) =>
-        `${item.reasonLabel.toUpperCase()}\n${item.content}${item.sourceUrl ? `\n${item.sourceLabel || "Source"}: ${item.sourceUrl}` : ""}`
+        `${i + 1}. ${item.content}${item.sourceUrl ? ` (${item.sourceUrl})` : ""}`
     )
-    .join("\n\n---\n\n");
+    .join("\n\n");
 
-  return `${date}\nYour briefing, ${firstName}.\n\n${itemsText}\n\n---\nOpen in app: ${appUrl}/briefing`;
+  return `${date}\n${firstName}, here's what matters today.\n\n${itemsText}\n\nFull briefing: ${appUrl}/briefing`;
 }
 
 function escapeHtml(s: string): string {

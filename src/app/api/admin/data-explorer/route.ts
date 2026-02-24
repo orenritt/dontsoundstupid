@@ -41,61 +41,51 @@ export async function GET(request: NextRequest) {
   const offset = parseInt(request.nextUrl.searchParams.get("offset") || "0");
   const layer = request.nextUrl.searchParams.get("layer");
 
-  try { return await handleSource(source, limit, offset, layer, request, userId); } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("does not exist") || message.includes("relation")) {
+  try { return await handleSource(source, limit, offset, layer, request, userId); } catch (err: unknown) {
+    const pgErr = err as { message?: string; detail?: string; code?: string; severity?: string };
+    const message = pgErr.message || String(err);
+    const detail = pgErr.detail || "";
+    const fullMsg = `${message} ${detail}`.toLowerCase();
+
+    if (fullMsg.includes("does not exist") || fullMsg.includes("relation") || fullMsg.includes("42p01")) {
       return NextResponse.json({ error: `Table not found — run migrations first. (${message.split("\n")[0]})`, rows: [], _tableError: true }, { status: 200 });
     }
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: `Failed query: ${message.split("\n")[0]}${detail ? ` — ${detail}` : ""}`, rows: [] }, { status: 200 });
   }
 }
 
 async function handleSource(source: string | null, limit: number, offset: number, layer: string | null, request: NextRequest, userId: string) {
   switch (source) {
     case "overview": {
+      const safeCount = async (query: ReturnType<typeof sql>) => {
+        try {
+          const result = await db.execute(query);
+          return (result as unknown as { count: number }[])[0]?.count ?? 0;
+        } catch { return 0; }
+      };
+
       const [
         signalCounts,
-        userCount,
-        briefingCount,
-        feedCount,
-        newsQueryCount,
-        newsletterCount,
-        knowledgeCount,
-        feedbackCount,
-        pipelineCount,
+        users, briefings, feeds, newsQueries,
+        newsletters, knowledgeEntities, feedbackSignals, pipelineRuns,
       ] = await Promise.all([
         db.execute(sql`
-          SELECT layer, COUNT(*) as count
-          FROM signals
-          GROUP BY layer
-          ORDER BY count DESC
-        `),
-        db.execute(sql`SELECT COUNT(*) as count FROM users`),
-        db.execute(sql`SELECT COUNT(*) as count FROM briefings`),
-        db.execute(sql`SELECT COUNT(*) as count FROM syndication_feeds`),
-        db.execute(sql`SELECT COUNT(*) as count FROM news_queries`),
-        db.execute(sql`SELECT COUNT(*) as count FROM newsletter_registry`),
-        db.execute(sql`SELECT COUNT(*) as count FROM knowledge_entities`),
-        db.execute(sql`SELECT COUNT(*) as count FROM feedback_signals`),
-        db.execute(sql`SELECT COUNT(*) as count FROM pipeline_runs`),
+          SELECT layer, COUNT(*) as count FROM signals GROUP BY layer ORDER BY count DESC
+        `).catch(() => []),
+        safeCount(sql`SELECT COUNT(*) as count FROM users`),
+        safeCount(sql`SELECT COUNT(*) as count FROM briefings`),
+        safeCount(sql`SELECT COUNT(*) as count FROM syndication_feeds`),
+        safeCount(sql`SELECT COUNT(*) as count FROM news_queries`),
+        safeCount(sql`SELECT COUNT(*) as count FROM newsletter_registry`),
+        safeCount(sql`SELECT COUNT(*) as count FROM knowledge_entities`),
+        safeCount(sql`SELECT COUNT(*) as count FROM feedback_signals`),
+        safeCount(sql`SELECT COUNT(*) as count FROM pipeline_runs`),
       ]);
 
       return NextResponse.json({
         signalsByLayer: signalCounts,
-        users: (userCount as unknown as { count: number }[])[0]?.count ?? 0,
-        briefings:
-          (briefingCount as unknown as { count: number }[])[0]?.count ?? 0,
-        feeds: (feedCount as unknown as { count: number }[])[0]?.count ?? 0,
-        newsQueries:
-          (newsQueryCount as unknown as { count: number }[])[0]?.count ?? 0,
-        newsletters:
-          (newsletterCount as unknown as { count: number }[])[0]?.count ?? 0,
-        knowledgeEntities:
-          (knowledgeCount as unknown as { count: number }[])[0]?.count ?? 0,
-        feedbackSignals:
-          (feedbackCount as unknown as { count: number }[])[0]?.count ?? 0,
-        pipelineRuns:
-          (pipelineCount as unknown as { count: number }[])[0]?.count ?? 0,
+        users, briefings, feeds, newsQueries,
+        newsletters, knowledgeEntities, feedbackSignals, pipelineRuns,
       });
     }
 
