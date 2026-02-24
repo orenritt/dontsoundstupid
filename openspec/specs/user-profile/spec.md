@@ -25,23 +25,26 @@ The system MUST maintain a stable identity layer sourced from enrichment APIs. T
 
 ### Requirement: Context Layer
 
-The system MUST maintain a dynamic context layer sourced from user conversation. This layer evolves as the user's work changes.
+The system MUST maintain a dynamic context layer sourced from user conversation. This layer evolves as the user's work changes and includes a derived content universe.
 
 #### Scenario: Context fields populated from onboarding
 
 - **WHEN** the onboarding conversation completes
 - **THEN** the profile MUST contain: current initiatives/projects, key concerns, important terms/topics, geographic relevance, knowledge gaps, and intelligence goals
+- **AND** the system MUST trigger content universe generation after all profile fields are populated
 
 #### Scenario: Context is updatable
 
 - **WHEN** a user updates their initiatives, concerns, focus areas, or intelligence goals
 - **THEN** the context layer MUST reflect the changes without affecting the identity layer
+- **AND** the system MUST trigger content universe regeneration if parsedTopics, parsedInitiatives, parsedConcerns, or rapidFireClassifications changed
 
 #### Scenario: Context evolves from briefing feedback
 
 - **WHEN** a user provides tuning feedback through briefing interactions
 - **THEN** the context layer MUST incorporate learned relevance adjustments
 - **AND** accumulated feedback MUST refine the derived relevance keywords used for signal matching
+- **AND** when 3 or more "tune-less" or "not-relevant" feedback signals accumulate since the last content universe generation, the system MUST trigger content universe regeneration with those feedback topics as exclusion candidates
 
 ### Requirement: Peer Organizations
 
@@ -68,7 +71,7 @@ The system MUST provide a unified profile that combines all layers for the brief
 
 - **WHEN** the briefing engine requests a user profile
 - **THEN** it MUST receive a unified object combining identity and context layers
-- **AND** the profile MUST include: the user's identity, their impress list, confirmed peer organizations (with comments), derived relevance keywords for signal matching, and calendar connection status with upcoming meeting data when available
+- **AND** the profile MUST include: the user's identity, their impress list, confirmed peer organizations (with comments), derived relevance keywords for signal matching, calendar connection status with upcoming meeting data when available, and the user's content universe (definition, coreTopics, exclusions, seismicThreshold)
 
 ### Requirement: Delivery Preferences
 
@@ -196,7 +199,7 @@ The impress list MUST support multiple tiers and be modifiable at any time after
 - **WHEN** a meeting with a temporary impress contact concludes
 - **THEN** the system MUST prompt the user: "Want to add [name] to your impress list permanently?"
 - **AND** if the user accepts, the contact MUST be promoted to core with source "promoted-from-calendar"
-- **AND** the system MUST trigger an asynchronous deep-dive research job for the promoted contact
+- **AND** the system MUST trigger a full deep-dive research job (Perplexity + Tavily) for the promoted contact if they only had a light deep dive
 
 #### Scenario: Unified impress list for briefing engine
 
@@ -209,5 +212,44 @@ The impress list MUST support multiple tiers and be modifiable at any time after
 
 - **WHEN** an impress contact record is stored or returned
 - **THEN** it MUST include a `researchStatus` field (one of: `"none"`, `"pending"`, `"completed"`, `"failed"`)
-- **AND** MUST include a nullable `deepDiveData` field containing structured research output when available (interests, focus areas, recent activity, talking points, company context, summary)
+- **AND** MUST include a nullable `deepDiveData` field containing structured research output when available
+- **AND** MUST include a `lastEnrichedAt` timestamp indicating when the contact was last enriched (null if never enriched)
+- **AND** MUST include an `enrichmentVersion` integer indicating how many times the contact has been enriched (0 if never)
+- **AND** MUST include an `enrichmentDepth` field (one of: `"full"`, `"light"`, `"none"`) indicating whether the contact received a full deep dive, a Perplexity-only light deep dive, or no deep dive
 
+### Requirement: Content Universe Storage
+
+The user profile MUST store the derived content universe as a structured field.
+
+#### Scenario: Content universe field on profile
+
+- **WHEN** a content universe is generated for a user
+- **THEN** the system MUST store it in a `contentUniverse` jsonb field on the user profile record
+- **AND** the field MUST contain the full ContentUniverse structure: definition, coreTopics, exclusions, seismicThreshold, generatedAt, generatedFrom, and version
+
+#### Scenario: Content universe is nullable
+
+- **WHEN** a user profile exists but content universe has not yet been generated
+- **THEN** the `contentUniverse` field MUST be null
+- **AND** all downstream consumers (scoring agent, query derivation, etc.) MUST gracefully handle a null content universe by falling back to current behavior
+
+### Requirement: Enrichment Lifecycle Configuration
+
+The user profile MUST support configuration of contact enrichment lifecycle parameters.
+
+#### Scenario: Default re-enrichment interval
+
+- **WHEN** a new user profile is created
+- **THEN** the profile MUST include a `reEnrichmentIntervalDays` configuration with a default value of 90
+
+#### Scenario: User updates re-enrichment interval
+
+- **WHEN** a user changes their `reEnrichmentIntervalDays` value
+- **THEN** the profile MUST store the new interval
+- **AND** the next staleness check MUST use the updated interval for all contacts
+
+#### Scenario: Re-enrichment interval minimum
+
+- **WHEN** a user attempts to set `reEnrichmentIntervalDays` below 30
+- **THEN** the system MUST reject the update
+- **AND** MUST return an error indicating the minimum allowed interval is 30 days

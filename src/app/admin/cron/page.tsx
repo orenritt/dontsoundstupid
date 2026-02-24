@@ -56,10 +56,55 @@ interface JobResult {
   results: Record<string, unknown>[];
 }
 
+interface HealthStage {
+  stage: string;
+  status: "pass" | "warn" | "fail";
+  durationMs: number;
+  details: Record<string, unknown>;
+}
+
+interface HealthResult {
+  userId: string;
+  email: string | null;
+  stages: HealthStage[];
+}
+
+interface HealthCheck {
+  timestamp: string;
+  usersChecked: number;
+  summary: { healthy: number; warnings: number; failing: number };
+  results: HealthResult[];
+}
+
+const STATUS_COLORS = { pass: "text-green-400", warn: "text-yellow-400", fail: "text-red-400" };
+const STATUS_LABELS = { pass: "PASS", warn: "WARN", fail: "FAIL" };
+
 export default function CronPage() {
   const [running, setRunning] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<JobResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [healthCheck, setHealthCheck] = useState<HealthCheck | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [expandedUser, setExpandedUser] = useState<string | null>(null);
+
+  async function runHealthCheck() {
+    setHealthLoading(true);
+    setHealthError(null);
+    setHealthCheck(null);
+    try {
+      const res = await fetch("/api/admin/pipeline-test", { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || `HTTP ${res.status}`);
+      }
+      setHealthCheck(await res.json());
+    } catch (err) {
+      setHealthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setHealthLoading(false);
+    }
+  }
 
   async function triggerJob(jobId: string) {
     setRunning(jobId);
@@ -93,6 +138,98 @@ export default function CronPage() {
         title="Cron Jobs"
         description="Manually trigger scheduled jobs and inspect results"
       />
+
+      <div className="mb-8">
+        <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-white">Pipeline Health Check</h3>
+              <p className="text-xs text-white/40 mt-0.5">Tests each pipeline stage without running anything — checks profile, queries, signals, contacts, calendar, and API keys</p>
+            </div>
+            <button
+              onClick={runHealthCheck}
+              disabled={healthLoading}
+              className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${healthLoading ? "bg-white/10 text-white/50 cursor-wait" : "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 active:bg-blue-500/40 border border-blue-500/30"}`}
+            >
+              {healthLoading ? (
+                <span className="flex items-center gap-2">
+                  <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white/70 rounded-full animate-spin" />
+                  Testing...
+                </span>
+              ) : "Run Health Check"}
+            </button>
+          </div>
+
+          {healthError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mt-3">
+              <p className="text-sm text-red-400">{healthError}</p>
+            </div>
+          )}
+
+          {healthCheck && (
+            <div className="mt-4 space-y-4">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-black/20 rounded-lg p-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-white/30">Healthy</p>
+                  <p className="text-lg font-bold text-green-400">{healthCheck.summary.healthy}</p>
+                </div>
+                <div className="bg-black/20 rounded-lg p-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-white/30">Warnings</p>
+                  <p className="text-lg font-bold text-yellow-400">{healthCheck.summary.warnings}</p>
+                </div>
+                <div className="bg-black/20 rounded-lg p-3 text-center">
+                  <p className="text-[10px] uppercase tracking-wider text-white/30">Failing</p>
+                  <p className="text-lg font-bold text-red-400">{healthCheck.summary.failing}</p>
+                </div>
+              </div>
+
+              {healthCheck.results.map((r) => {
+                const fails = r.stages.filter((s) => s.status === "fail").length;
+                const warns = r.stages.filter((s) => s.status === "warn").length;
+                const isExpanded = expandedUser === r.userId;
+
+                return (
+                  <div key={r.userId} className="bg-black/20 rounded-lg overflow-hidden">
+                    <button
+                      onClick={() => setExpandedUser(isExpanded ? null : r.userId)}
+                      className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-white/5 transition-colors"
+                    >
+                      <span className="text-xs text-white/60">{r.email || r.userId.slice(0, 8)}</span>
+                      <div className="flex items-center gap-3">
+                        {r.stages.map((s) => (
+                          <span key={s.stage} className={`text-[10px] font-mono ${STATUS_COLORS[s.status]}`}>
+                            {s.stage}
+                          </span>
+                        ))}
+                        <span className={`text-xs font-medium ${fails > 0 ? "text-red-400" : warns > 0 ? "text-yellow-400" : "text-green-400"}`}>
+                          {fails > 0 ? `${fails} failing` : warns > 0 ? `${warns} warnings` : "healthy"}
+                        </span>
+                        <span className="text-white/20 text-xs">{isExpanded ? "▲" : "▼"}</span>
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div className="px-4 pb-4 space-y-2">
+                        {r.stages.map((s) => (
+                          <div key={s.stage} className="bg-black/30 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-1.5">
+                              <span className="text-xs font-medium text-white/80">{s.stage}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-white/20">{s.durationMs}ms</span>
+                                <span className={`text-[10px] font-bold ${STATUS_COLORS[s.status]}`}>{STATUS_LABELS[s.status]}</span>
+                              </div>
+                            </div>
+                            <pre className="text-[10px] text-white/40 whitespace-pre-wrap overflow-x-auto">{JSON.stringify(s.details, null, 2)}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {JOBS.map((job) => {

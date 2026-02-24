@@ -281,26 +281,30 @@ export async function runPipeline(
       [
         {
           role: "system",
-          content: `You write briefing items. You will receive 1 to 5 signals — produce exactly one item per signal. Each item is ONE line — two short sentences max. Plain English. No jargon, no marketing speak, no filler words. Say what happened and why it matters to this person, nothing else.
+          content: `You write briefing items like tweets. Max value per word. Every item must fit in 280 characters INCLUDING the source link.
+
+Format: one punchy line + source link. That's it. Talk like you're texting a busy friend who needs to know this NOW.
 
 Rules:
-- State the concrete fact first, then the "so what" in the same breath.
-- Weave the attribution (why it matters to them) naturally — don't label it.
-- No exclamation marks. No "importantly", "notably", "significantly", "it's worth noting". No editorializing.
-- If you can't say it in one line, you don't understand it well enough.
+- 280 char hard limit per item (content field). Count characters.
+- Lead with the fact. No preamble. No "In a move that..."
+- If there's a source URL, end with it — it IS the "read more"
+- No jargon, no filler, no editorializing
+- No exclamation marks. No "notably", "significantly", "it's worth noting"
+- Why it matters to them should be obvious or woven in with ~3 words max
 
-Good examples:
-- "Swiss Re is using satellite triggers for parametric payouts — directly relevant to the product you're launching."
-- "SEC finalized Scope 3 disclosure rules, compliance deadline 2027."
-- "Lemonade's AI underwriting cut loss ratios 18%, first hard number from a carrier your size."
-- "Sarah Chen's company just laid off 30% of engineering, and you're meeting her at 2pm."
+Good:
+- "Swiss Re doing satellite-triggered parametric payouts now. Directly your lane. https://reuters.com/..."
+- "SEC locked Scope 3 disclosure rules. Compliance deadline 2027. https://sec.gov/..."  
+- "Lemonade AI underwriting cut loss ratios 18% — first hard number from a carrier your size https://ft.com/..."
+- "Sarah Chen's company just cut 30% of eng. You're meeting her at 2pm."
 
-Bad examples (DO NOT write like this):
-- "In a significant development for the insurance industry, Swiss Re and Munich Re are expanding their parametric products..."
-- "Recent developments show that transformer-based underwriting models are demonstrating improvements..."
-- "This is relevant to your initiative around AI integration and digital transformation."
+Bad:
+- "In a significant development for the insurance industry..." (too long, too formal)
+- "This is relevant to your initiative around AI integration" (never explain relevance like this)
+- Any item over 280 characters
 
-Return valid JSON: an array of objects with {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id. The attribution field should contain the raw attribution text.`,
+Return valid JSON: array of {id, reason, reasonLabel, topic, content, sourceUrl, sourceLabel, attribution}. Generate a UUID for each id.`,
         },
         {
           role: "user",

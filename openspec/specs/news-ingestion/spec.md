@@ -8,7 +8,7 @@ News ingestion is a signal layer backed by GDELT's DOC 2.0 API and Global Knowle
 
 ### Requirement: News Query Derivation
 
-The system MUST automatically derive GDELT queries from user profile elements.
+The system MUST automatically derive GDELT queries from user profile elements, scoped to the user's content universe.
 
 #### Scenario: Queries from impress list companies
 
@@ -28,10 +28,17 @@ The system MUST automatically derive GDELT queries from user profile elements.
 - **THEN** the system MUST create news queries using the goal detail as keyword phrases
 - **AND** MUST set the `derivedFrom` field to "intelligence-goal" with the goal category and detail as profile reference
 
-#### Scenario: Queries from industry topics
+#### Scenario: Queries from industry topics scoped to content universe
 
-- **WHEN** a user profile contains industry topics
-- **THEN** the system MUST create news queries using topic keywords combined with NEAR operators for specificity
+- **WHEN** a user profile contains a content universe with coreTopics
+- **THEN** the system MUST create news queries using each coreTopics entry as a quoted phrase query, NOT using bare parsedTopics keywords
+- **AND** each query MUST use the intersectional descriptor from coreTopics (e.g., "parametric insurance ecosystem restoration") rather than independent keywords (e.g., NOT "insurtech")
+- **AND** MUST set the `derivedFrom` field to "industry" with the coreTopics entry as profile reference
+
+#### Scenario: Queries from industry topics without content universe
+
+- **WHEN** a user profile does NOT have a content universe (legacy user, generation pending)
+- **THEN** the system MUST fall back to creating news queries using parsedTopics keywords as before
 - **AND** MUST set the `derivedFrom` field to "industry" with the topic as profile reference
 
 #### Scenario: Geographic filtering
@@ -146,3 +153,20 @@ The system MUST support configurable parameters for the news ingestion layer.
 - **WHEN** executing multiple GDELT queries in a single poll cycle
 - **THEN** the system MUST wait at least the configured inter-query delay between consecutive API requests
 - **AND** MUST NOT exceed a configurable maximum queries per cycle (default: 50)
+
+### Requirement: Universe-Scoped Query Refresh
+
+The news query refresh process MUST generate new queries that go deeper within the user's content universe, NOT broader into adjacent fields.
+
+#### Scenario: Refresh prompt constrained to content universe
+
+- **WHEN** the query refresh LLM generates new search queries for a user with a content universe
+- **THEN** the LLM prompt MUST include the user's content universe definition and exclusion list
+- **AND** the prompt MUST instruct the LLM to generate queries that explore deeper, more specific angles WITHIN the content universe (e.g., specific sub-niches, specific mechanisms, specific regulatory bodies within the user's domain)
+- **AND** the prompt MUST explicitly prohibit generating queries about topics in the exclusion list
+- **AND** the prompt MUST NOT use language like "adjacent topics", "emerging areas they haven't mentioned", "cross-cutting trends", or "white space"
+
+#### Scenario: Refresh without content universe
+
+- **WHEN** the query refresh LLM generates new search queries for a user without a content universe
+- **THEN** the system MUST fall back to current behavior
