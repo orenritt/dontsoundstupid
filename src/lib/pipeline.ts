@@ -6,6 +6,7 @@ import { runScoringAgent, DEFAULT_AGENT_CONFIG } from "./scoring-agent";
 import type { AgentScoringConfig } from "../models/relevance";
 import { sendBriefingEmail } from "./delivery";
 import { extractAndSeedEntities } from "./briefing-entity-extraction";
+import { pruneKnowledgeGraph } from "./knowledge-prune";
 import { updatePipelineStatus } from "./pipeline-status";
 import { deriveNewsQueries, pollNewsQueries, refreshQueriesForUser } from "./news-ingestion";
 import { deriveFeedsForUser, pollSyndicationFeeds } from "./syndication";
@@ -103,6 +104,18 @@ export async function runPipeline(
   } catch (err) {
     diagnostics.aiResearch = { error: err instanceof Error ? err.message : String(err) };
     ulog.error({ err }, "AI research failed (continuing)");
+  }
+
+  try {
+    ulog.info("Pruning knowledge graph before scoring");
+    const pruneResult = await pruneKnowledgeGraph(userId);
+    diagnostics.knowledgePrune = { pruned: pruneResult.pruned, kept: pruneResult.kept, exempt: pruneResult.exempt };
+    if (pruneResult.pruned > 0) {
+      ulog.info(diagnostics.knowledgePrune, "Knowledge graph pruned");
+    }
+  } catch (err) {
+    diagnostics.knowledgePrune = { error: err instanceof Error ? err.message : String(err) };
+    ulog.error({ err }, "Knowledge graph pruning failed (continuing)");
   }
 
   updatePipelineStatus(userId, "loading-signals");
