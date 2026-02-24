@@ -41,6 +41,16 @@ export async function GET(request: NextRequest) {
   const offset = parseInt(request.nextUrl.searchParams.get("offset") || "0");
   const layer = request.nextUrl.searchParams.get("layer");
 
+  try { return await handleSource(source, limit, offset, layer, request, userId); } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("does not exist") || message.includes("relation")) {
+      return NextResponse.json({ error: `Table not found — run migrations first. (${message.split("\n")[0]})`, rows: [], _tableError: true }, { status: 200 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+async function handleSource(source: string | null, limit: number, offset: number, layer: string | null, request: NextRequest, userId: string) {
   switch (source) {
     case "overview": {
       const [

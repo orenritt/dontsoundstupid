@@ -15,8 +15,19 @@ export function useAdminData<T>(source: string, params?: Record<string, string>)
       const parsedParams = JSON.parse(paramsKey) as Record<string, string> | undefined;
       const searchParams = new URLSearchParams({ source, ...parsedParams });
       const res = await fetch(`/api/admin/data-explorer?${searchParams}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
+      const text = await res.text();
+      if (!res.ok) {
+        try {
+          const errJson = JSON.parse(text);
+          throw new Error(errJson.error || `HTTP ${res.status}`);
+        } catch {
+          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+        }
+      }
+      if (!text || text === "undefined") {
+        throw new Error("Empty response from server");
+      }
+      const json = JSON.parse(text);
       setData(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");

@@ -1,18 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import {
-  users,
-  userProfiles,
-  signals,
-  signalProvenance,
-  newsQueries,
-  impressContacts,
-  peerOrganizations,
-  meetings,
-  meetingAttendees,
-} from "@/lib/schema";
+import { users, userProfiles, signals, signalProvenance } from "@/lib/schema";
 import { eq, sql, gte, inArray, and } from "drizzle-orm";
+import { deriveNewsQueries, pollNewsQueries, refreshQueriesForUser } from "@/lib/news-ingestion";
+import { deriveFeedsForUser, pollSyndicationFeeds } from "@/lib/syndication";
+import { runAiResearch } from "@/lib/ai-research";
+import { pruneKnowledgeGraph } from "@/lib/knowledge-prune";
+import { runScoringAgent, DEFAULT_AGENT_CONFIG } from "@/lib/scoring-agent";
 import { toStringArray } from "@/lib/safe-parse";
 import type { ContentUniverse } from "@/models/content-universe";
 
@@ -52,29 +47,29 @@ export async function POST() {
   for (const user of allUsers) {
     const stages: StageResult[] = [];
 
-    // 1. Profile check
+    // 1. Profile — load and validate
     let start = Date.now();
+    let hasProfile = false;
     try {
       const [profile] = await db.select().from(userProfiles).where(eq(userProfiles.userId, user.id)).limit(1);
-      const contentUniverse = profile ? (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null : null;
-      const topics = profile ? toStringArray(profile.parsedTopics) : [];
-      const initiatives = profile ? toStringArray(profile.parsedInitiatives) : [];
-
       if (!profile) {
         stages.push({ stage: "profile", status: "fail", durationMs: Date.now() - start, details: { error: "No profile found" } });
       } else {
+        hasProfile = true;
+        const contentUniverse = (profile as Record<string, unknown>).contentUniverse as ContentUniverse | null;
+        const topics = toStringArray(profile.parsedTopics);
         stages.push({
           stage: "profile",
           status: topics.length === 0 ? "warn" : "pass",
           durationMs: Date.now() - start,
           details: {
             topics: topics.length,
-            initiatives: initiatives.length,
+            initiatives: toStringArray(profile.parsedInitiatives).length,
+            concerns: toStringArray(profile.parsedConcerns).length,
             hasContentUniverse: !!contentUniverse,
-            contentUniverseVersion: contentUniverse?.version ?? null,
             coreTopics: contentUniverse?.coreTopics?.length ?? 0,
             exclusions: contentUniverse?.exclusions?.length ?? 0,
-            ...(topics.length === 0 ? { warning: "No parsed topics — queries will be empty" } : {}),
+            ...(topics.length === 0 ? { warning: "No parsed topics" } : {}),
           },
         });
       }
@@ -82,114 +77,183 @@ export async function POST() {
       stages.push({ stage: "profile", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
     }
 
-    // 2. Query derivation check
+    if (!hasProfile) {
+      results.push({ userId: user.id, email: user.email, stages });
+      continue;
+    }
+
+    // 2. News query derivation — LIVE: derives queries from profile
     start = Date.now();
     try {
-      const activeQueries = await db.select({ id: newsQueries.id, queryText: newsQueries.queryText, derivedFrom: newsQueries.derivedFrom }).from(newsQueries).where(and(eq(newsQueries.userId, user.id), eq(newsQueries.active, true)));
-      const bySource = activeQueries.reduce((acc, q) => { acc[q.derivedFrom] = (acc[q.derivedFrom] || 0) + 1; return acc; }, {} as Record<string, number>);
-
+      await deriveNewsQueries(user.id);
+      const refreshed = await refreshQueriesForUser(user.id);
       stages.push({
-        stage: "queries",
-        status: activeQueries.length === 0 ? "fail" : "pass",
+        stage: "query-derivation",
+        status: "pass",
+        durationMs: Date.now() - start,
+        details: { refreshedQueries: refreshed },
+      });
+    } catch (err) {
+      stages.push({ stage: "query-derivation", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+    }
+
+    // 3. News polling — LIVE: hits NewsAPI.ai
+    start = Date.now();
+    try {
+      const newsResult = await pollNewsQueries(crypto.randomUUID());
+      stages.push({
+        stage: "news-ingestion",
+        status: newsResult.signals.length === 0 && newsResult.errorsEncounted > 0 ? "fail" : newsResult.signals.length === 0 ? "warn" : "pass",
         durationMs: Date.now() - start,
         details: {
-          totalActive: activeQueries.length,
-          bySource,
-          sampleQueries: activeQueries.slice(0, 5).map((q) => q.queryText),
-          ...(activeQueries.length === 0 ? { error: "No active queries — nothing will be fetched from news API" } : {}),
+          queriesPolled: newsResult.queriesPolled,
+          articlesFound: newsResult.articlesFound,
+          filteredOut: newsResult.filteredOut,
+          signalsCreated: newsResult.signals.length,
+          errors: newsResult.errorsEncounted,
+          ...(newsResult.signals.length === 0 ? { warning: "No news signals ingested" } : {}),
         },
       });
     } catch (err) {
-      stages.push({ stage: "queries", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+      stages.push({ stage: "news-ingestion", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
     }
 
-    // 3. Signal pool check
+    // 4. Syndication — LIVE: polls RSS feeds
     start = Date.now();
+    try {
+      await deriveFeedsForUser(user.id);
+      const synResult = await pollSyndicationFeeds();
+      stages.push({
+        stage: "syndication",
+        status: "pass",
+        durationMs: Date.now() - start,
+        details: {
+          feedsPolled: synResult.feedsPolled,
+          newItems: synResult.newItems,
+          errors: synResult.errors,
+        },
+      });
+    } catch (err) {
+      stages.push({ stage: "syndication", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+    }
+
+    // 5. AI Research — LIVE: hits Perplexity + Tavily
+    start = Date.now();
+    try {
+      const aiSignals = await runAiResearch(user.id);
+      stages.push({
+        stage: "ai-research",
+        status: aiSignals.length === 0 ? "warn" : "pass",
+        durationMs: Date.now() - start,
+        details: {
+          signalsReturned: aiSignals.length,
+          sampleTitles: aiSignals.slice(0, 3).map((s) => s.title.slice(0, 100)),
+          ...(aiSignals.length === 0 ? { warning: "No AI research signals — check Perplexity/Tavily API keys" } : {}),
+        },
+      });
+    } catch (err) {
+      stages.push({ stage: "ai-research", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+    }
+
+    // 6. Knowledge graph pruning — LIVE
+    start = Date.now();
+    try {
+      const pruneResult = await pruneKnowledgeGraph(user.id);
+      stages.push({
+        stage: "knowledge-prune",
+        status: "pass",
+        durationMs: Date.now() - start,
+        details: { pruned: pruneResult.pruned, kept: pruneResult.kept, exempt: pruneResult.exempt },
+      });
+    } catch (err) {
+      stages.push({ stage: "knowledge-prune", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+    }
+
+    // 7. Signal pool — check what's available for scoring
+    start = Date.now();
+    let candidateCount = 0;
     try {
       const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       const provRows = await db.select({ signalId: signalProvenance.signalId }).from(signalProvenance).where(eq(signalProvenance.userId, user.id));
       const signalIds = provRows.map((r) => r.signalId);
 
-      let recentCount = 0;
       let layerBreakdown: Record<string, number> = {};
       if (signalIds.length > 0) {
         const recentSignals = await db.select({ id: signals.id, layer: signals.layer }).from(signals).where(and(inArray(signals.id, signalIds), gte(signals.ingestedAt, twoDaysAgo)));
-        recentCount = recentSignals.length;
+        candidateCount = recentSignals.length;
         layerBreakdown = recentSignals.reduce((acc, s) => { acc[s.layer || "unknown"] = (acc[s.layer || "unknown"] || 0) + 1; return acc; }, {} as Record<string, number>);
       }
 
       stages.push({
-        stage: "signals",
-        status: recentCount === 0 ? "fail" : recentCount < 5 ? "warn" : "pass",
+        stage: "signal-pool",
+        status: candidateCount === 0 ? "fail" : candidateCount < 5 ? "warn" : "pass",
         durationMs: Date.now() - start,
         details: {
           totalProvenance: signalIds.length,
-          recentSignals: recentCount,
+          recentCandidates: candidateCount,
           layerBreakdown,
-          ...(recentCount === 0 ? { error: "No recent signals in pool — scoring will have nothing to work with" } : {}),
-          ...(recentCount > 0 && recentCount < 5 ? { warning: `Only ${recentCount} recent signals — briefing quality may suffer` } : {}),
+          ...(candidateCount === 0 ? { error: "No recent signals — scoring cannot run" } : {}),
         },
       });
     } catch (err) {
-      stages.push({ stage: "signals", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+      stages.push({ stage: "signal-pool", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
     }
 
-    // 4. Impress list + peer orgs check
+    // 8. Scoring agent — LIVE: runs the LLM scoring agent
     start = Date.now();
-    try {
-      const contacts = await db.select({ id: impressContacts.id, name: impressContacts.name, company: impressContacts.company }).from(impressContacts).where(eq(impressContacts.userId, user.id));
-      const peers = await db.select({ id: peerOrganizations.id, name: peerOrganizations.name, confirmed: peerOrganizations.confirmed }).from(peerOrganizations).where(eq(peerOrganizations.userId, user.id));
+    if (candidateCount > 0) {
+      try {
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+        const provRows = await db.select({ signalId: signalProvenance.signalId }).from(signalProvenance).where(eq(signalProvenance.userId, user.id));
+        const signalIds = provRows.map((r) => r.signalId);
+        const signalRows = await db
+          .select({ title: signals.title, summary: signals.summary, sourceUrl: signals.sourceUrl, metadata: signals.metadata, layer: signals.layer })
+          .from(signals)
+          .where(and(inArray(signals.id, signalIds), gte(signals.ingestedAt, twoDaysAgo)))
+          .limit(200);
 
-      stages.push({
-        stage: "contacts",
-        status: "pass",
-        durationMs: Date.now() - start,
-        details: {
-          impressContacts: contacts.length,
-          companiesTracked: new Set(contacts.map((c) => c.company).filter(Boolean)).size,
-          peerOrgs: peers.filter((p) => p.confirmed).length,
-          unconfirmedPeerOrgs: peers.filter((p) => !p.confirmed).length,
-        },
-      });
-    } catch (err) {
-      stages.push({ stage: "contacts", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
-    }
+        const candidates = signalRows.map((r) => ({
+          title: r.title,
+          summary: r.summary || r.title,
+          sourceUrl: r.sourceUrl,
+          sourceLabel: (r.metadata as Record<string, string>)?.source_domain || (r.metadata as Record<string, string>)?.source_label || r.layer || null,
+        }));
 
-    // 5. Calendar / meetings check
-    start = Date.now();
-    try {
-      const now = new Date();
-      const tomorrowEnd = new Date(now);
-      tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-      tomorrowEnd.setHours(23, 59, 59, 999);
-
-      const upcomingMeetings = await db.select({ id: meetings.id, title: meetings.title, startTime: meetings.startTime }).from(meetings).where(and(eq(meetings.userId, user.id), gte(meetings.startTime, now)));
-      const todayMeetings = upcomingMeetings.filter((m) => m.startTime <= tomorrowEnd);
-
-      let attendeeCount = 0;
-      if (todayMeetings.length > 0) {
-        const attendees = await db.select({ id: meetingAttendees.id }).from(meetingAttendees).where(inArray(meetingAttendees.meetingId, todayMeetings.map((m) => m.id)));
-        attendeeCount = attendees.length;
+        const agentResult = await runScoringAgent(user.id, candidates, DEFAULT_AGENT_CONFIG);
+        if (!agentResult) {
+          stages.push({ stage: "scoring", status: "fail", durationMs: Date.now() - start, details: { error: "Scoring agent returned null" } });
+        } else {
+          stages.push({
+            stage: "scoring",
+            status: agentResult.selections.length === 0 ? "warn" : "pass",
+            durationMs: Date.now() - start,
+            details: {
+              candidatesEvaluated: candidates.length,
+              selectionsReturned: agentResult.selections.length,
+              toolCallsMade: agentResult.toolCallLog.length,
+              model: agentResult.modelUsed,
+              promptTokens: agentResult.promptTokens,
+              completionTokens: agentResult.completionTokens,
+              reasoningPreview: agentResult.reasoning.slice(0, 500),
+              ...(agentResult.selections.length === 0 ? { warning: "No signals cleared interestingness threshold" } : {}),
+              selections: agentResult.selections.slice(0, 5).map((s) => ({
+                index: s.signalIndex,
+                reason: s.reason,
+                label: s.reasonLabel,
+              })),
+            },
+          });
+        }
+      } catch (err) {
+        stages.push({ stage: "scoring", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
       }
-
-      stages.push({
-        stage: "calendar",
-        status: upcomingMeetings.length === 0 ? "warn" : "pass",
-        durationMs: Date.now() - start,
-        details: {
-          upcomingMeetings: upcomingMeetings.length,
-          todayTomorrow: todayMeetings.length,
-          attendeesToday: attendeeCount,
-          ...(upcomingMeetings.length === 0 ? { warning: "No upcoming meetings synced — meeting prep features won't fire" } : {}),
-        },
-      });
-    } catch (err) {
-      stages.push({ stage: "calendar", status: "fail", durationMs: Date.now() - start, details: { error: err instanceof Error ? err.message : String(err) } });
+    } else {
+      stages.push({ stage: "scoring", status: "fail", durationMs: 0, details: { error: "Skipped — no candidates available" } });
     }
 
-    // 6. API keys check
+    // 9. API keys check
     start = Date.now();
-    const apiKeys = {
+    const apiKeys: Record<string, boolean> = {
       OPENAI_API_KEY: !!process.env.OPENAI_API_KEY,
       PERPLEXITY_API_KEY: !!process.env.PERPLEXITY_API_KEY,
       TAVILY_API_KEY: !!process.env.TAVILY_API_KEY,
@@ -197,18 +261,12 @@ export async function POST() {
       RESEND_API_KEY: !!process.env.RESEND_API_KEY,
       SERPAPI_API_KEY: !!process.env.SERPAPI_API_KEY,
     };
-    const missingCritical = !apiKeys.OPENAI_API_KEY;
-    const missingOptional = Object.entries(apiKeys).filter(([, v]) => !v).map(([k]) => k);
-
+    const missing = Object.entries(apiKeys).filter(([, v]) => !v).map(([k]) => k);
     stages.push({
       stage: "api-keys",
-      status: missingCritical ? "fail" : missingOptional.length > 1 ? "warn" : "pass",
+      status: !apiKeys.OPENAI_API_KEY ? "fail" : missing.length > 1 ? "warn" : "pass",
       durationMs: Date.now() - start,
-      details: {
-        ...apiKeys,
-        ...(missingCritical ? { error: "OPENAI_API_KEY missing — scoring and composition will fail" } : {}),
-        ...(missingOptional.length > 0 ? { missing: missingOptional } : {}),
-      },
+      details: { ...apiKeys, ...(missing.length > 0 ? { missing } : {}) },
     });
 
     results.push({ userId: user.id, email: user.email, stages });
@@ -217,7 +275,7 @@ export async function POST() {
   const overallHealth = results.map((r) => {
     const fails = r.stages.filter((s) => s.status === "fail").length;
     const warns = r.stages.filter((s) => s.status === "warn").length;
-    return { userId: r.userId, email: r.email, fails, warns, passes: r.stages.length - fails - warns };
+    return { userId: r.userId, email: r.email, fails, warns, passes: r.stages.length - fails - warns, totalMs: r.stages.reduce((s, st) => s + st.durationMs, 0) };
   });
 
   return NextResponse.json({

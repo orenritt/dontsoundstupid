@@ -143,8 +143,8 @@ export default function CronPage() {
         <div className="bg-white/5 border border-white/10 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="text-sm font-semibold text-white">Pipeline Health Check</h3>
-              <p className="text-xs text-white/40 mt-0.5">Tests each pipeline stage without running anything — checks profile, queries, signals, contacts, calendar, and API keys</p>
+              <h3 className="text-sm font-semibold text-white">Pipeline Live Test</h3>
+              <p className="text-xs text-white/40 mt-0.5">Runs every pipeline stage live — ingests from APIs, scores with the LLM, reports pass/fail per stage with timing and errors. Does NOT compose or deliver.</p>
             </div>
             <button
               onClick={runHealthCheck}
@@ -156,7 +156,7 @@ export default function CronPage() {
                   <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white/70 rounded-full animate-spin" />
                   Testing...
                 </span>
-              ) : "Run Health Check"}
+              ) : "Run Live Test"}
             </button>
           </div>
 
