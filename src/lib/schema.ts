@@ -844,3 +844,98 @@ export const signalProvenance = pgTable(
     index("idx_provenance_user_reason").on(table.userId, table.triggerReason),
   ]
 );
+
+// --- Pipeline orchestrator ---
+
+export const pipelineRunStatusEnum = pgEnum("pipeline_run_status", [
+  "scheduled",
+  "running",
+  "completed",
+  "partial-failure",
+  "failed",
+]);
+
+export const pipelineRunTypeEnum = pgEnum("pipeline_run_type", [
+  "daily",
+  "t0-seeding",
+  "retry",
+  "manual",
+]);
+
+export const pipelineStageEnum = pgEnum("pipeline_stage", [
+  "ingestion",
+  "scoring",
+  "novelty-filtering",
+  "composition",
+  "delivery",
+  "knowledge-update",
+]);
+
+export const stageOutcomeEnum = pgEnum("stage_outcome", [
+  "success",
+  "partial-failure",
+  "failure",
+  "skipped",
+]);
+
+export const pipelineRuns = pgTable(
+  "pipeline_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    status: pipelineRunStatusEnum("status").notNull().default("scheduled"),
+    runType: pipelineRunTypeEnum("run_type").notNull().default("daily"),
+    briefingId: uuid("briefing_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    index("idx_pipeline_runs_user").on(table.userId),
+    index("idx_pipeline_runs_status").on(table.status),
+    index("idx_pipeline_runs_started").on(table.startedAt),
+  ]
+);
+
+export const pipelineStages = pgTable(
+  "pipeline_stages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id").notNull().references(() => pipelineRuns.id),
+    stage: pipelineStageEnum("stage").notNull(),
+    outcome: stageOutcomeEnum("outcome").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    signalsProcessed: integer("signals_processed").notNull().default(0),
+    signalsPassed: integer("signals_passed").notNull().default(0),
+    errorMessage: text("error_message"),
+  },
+  (table) => [
+    uniqueIndex("unique_run_stage").on(table.runId, table.stage),
+    index("idx_pipeline_stages_run").on(table.runId),
+  ]
+);
+
+// --- Email forwards ---
+
+export const emailForwards = pgTable(
+  "email_forwards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    senderEmail: text("sender_email").notNull(),
+    subject: text("subject").notNull(),
+    userAnnotation: text("user_annotation"),
+    forwardedContent: text("forwarded_content").notNull(),
+    originalSender: text("original_sender"),
+    extractedUrls: jsonb("extracted_urls").$type<string[]>().notNull().default([]),
+    primaryUrl: text("primary_url"),
+    signalId: uuid("signal_id").references(() => signals.id),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_email_forwards_user").on(table.userId),
+    index("idx_email_forwards_received").on(table.userId, table.receivedAt),
+  ]
+);
