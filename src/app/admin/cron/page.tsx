@@ -94,11 +94,11 @@ export default function CronPage() {
     setHealthCheck(null);
     try {
       const res = await fetch("/api/admin/pipeline-test", { method: "POST" });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
-      setHealthCheck(await res.json());
+      setHealthCheck(data);
     } catch (err) {
       setHealthError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -118,12 +118,10 @@ export default function CronPage() {
         body: JSON.stringify({ job: jobId }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json().catch(() => null);
         throw new Error(data?.error || `HTTP ${res.status}`);
       }
-
-      const data = await res.json();
       setLastResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
